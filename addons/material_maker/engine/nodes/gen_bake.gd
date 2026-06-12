@@ -8,6 +8,19 @@ var filetime : int = 0
 var current_mesh : ArrayMesh = null
 var current_bvh = null
 
+var world_pos_texture : MMTexture
+
+var baked_maps := {
+	"world_position":null,
+	"world_normal": null,
+	"hit_normal":null,
+	"ao":null,
+	"thickness":null,
+	"uv":null,
+	"vertex_color":null,
+	"curvature_color":null,
+}
+
 # copied from image
 func get_filetime(file_path : String) -> int:
 	if FileAccess.file_exists(file_path):
@@ -43,7 +56,8 @@ func reload_mesh():
 		current_bvh = MMBvhGenerator.generate(current_mesh)
 		var bvh_time = Time.get_ticks_msec() -bvh_start
 		print("BVH generation took %.3f s"%(bvh_time/1000.0))
-
+		
+	bake_maps()
 func get_type() -> String:
 	return "bake"
 
@@ -81,8 +95,18 @@ func set_parameter(n : String, v) -> void:
 	
 func get_output_defs(_show_hidden : bool = false) -> Array:
 	return [
-		{type ="rgb"}
+		{name ="world_position",type ="rgb", shortdesc = "world"},
+		{name ="world_normal",type ="rgb", shortdesc = "world normal"},
+		{name ="hit_normal",type ="rgb", shortdesc = "normal"},
+		{name ="ao",type ="f", shortdesc = "ao"},
+		{name ="thickness",type ="f", shortdesc = "thickness"},
+		{name ="uv",type ="rgb", shortdesc = "uv"},
+		{name ="vertex_color",type ="rgb", shortdesc = "vertex color"},
+		{name ="curvature",type ="f", shortdesc = "curvature"},
 	]
+
+func get_texture_parameter_name(output_name : String) ->String:
+	return "bake_%d_%s"%[get_instance_id(),output_name]
 	
 func _get_shader_code(uv, _output_index, context) -> ShaderCode:
 	var rv := ShaderCode.new()
@@ -91,11 +115,24 @@ func _get_shader_code(uv, _output_index, context) -> ShaderCode:
 	
 	var genname = "o%d" % get_instance_id()
 	var variant = context.get_variant(self,uv)
-	
+	var map_name = baked_maps.keys()[_output_index]
+
 	if variant == -1:
 		variant = context.get_variant(self,uv)
-		rv.code = "vec3 %s_%d = vec3(%f,%f,%f); \n"% [genname,variant,color.r,color.g,color.b]
-		rv.output_values.rgb = "%s_%d" % [genname,variant]
+		if (map_name in baked_maps) and baked_maps[map_name] != null:
+			var texture_name = get_texture_parameter_name(map_name)
+			rv.add_uniform(
+				texture_name,
+				"sampler2D",
+				baked_maps[map_name]
+			)
+			rv.code = "vec3 %s_%d = texture(%s,%s).rgb; \n"% [genname,variant,texture_name,uv]
+			rv.output_values.rgb = "%s_%d" % [genname,variant]
+		
+		else:
+			rv.code = "vec3 %s_%d = vec3(%f,%f,%f); \n"% [genname,variant,color.r,color.g,color.b]
+			rv.output_values.rgb = "%s_%d" % [genname,variant]
+			
 	
 	return rv
 	
@@ -107,4 +144,44 @@ func _serialize_data(data: Dictionary) -> Dictionary:
 	return data
 
 func _deserialize(data : Dictionary) -> void:
+	pass
+
+func bake_maps():
+	bake_world_position()
+
+func bake_world_position():
+	if current_mesh == null:
+		return
+	var pipeline = MMMeshRenderingPipeline.new()
+	pipeline.mesh = current_mesh
+	
+	var vertex_shader = load("res://addons/material_maker/map_generator/ao_vertex.tres").text
+	var fragment_shader = load("res://addons/material_maker/map_generator/bake_fragment.tres").text
+	var bvh : MMTexture = MMTexture.new()
+	bvh.set_texture(current_bvh)
+	pipeline.add_parameter_or_texture(
+		"bvh_data",
+		"sampler2D",
+		bvh
+	)
+	if !await pipeline.set_shader(vertex_shader,fragment_shader):
+		push_error("Shader compilation failed")
+		return
+	baked_maps["world_position"] = MMTexture.new()
+	#pipeline.in_thread_render(Vector2i(2048,2048),3,world_pos_texture)
+	await pipeline.render(Vector2i(2048,2048),3,baked_maps["world_position"])
+	print("bake complete")
+	mm_deps.dependency_update(get_texture_parameter_name("world_position"),baked_maps["world_position"],true)
+	pass
+func bake_world_normal():
+	pass
+func bake_uv():
+	pass
+func bake_vertex_color():
+	pass
+func bake_hit_normal():
+	pass
+func bake_thickness():
+	pass
+func bake_ao():
 	pass
