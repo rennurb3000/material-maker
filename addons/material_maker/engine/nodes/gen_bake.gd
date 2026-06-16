@@ -84,6 +84,20 @@ func get_parameter_defs() -> Array:
 			label="Mesh",
 			default="",
 			filters=MMMeshLoader.get_file_dialog_filters(),
+		},
+		{
+			name="offset_scale",
+			type= "float",
+			default = 1.0,
+			min = -10.0,
+			max = 10.0,
+		},
+		{
+			name= "max_raylength",
+			type = "float",
+			default = 10.0,
+			min = 0.0,
+			max = 100.0,
 		}
 	]
 func set_parameter(n : String, v) -> void:
@@ -104,7 +118,13 @@ func get_output_defs(_show_hidden : bool = false) -> Array:
 		{name ="vertex_color",type ="rgb", shortdesc = "vertex color"},
 		{name ="curvature",type ="f", shortdesc = "curvature"},
 	]
-
+func get_input_defs() -> Array:
+	return [
+		{name = "ray_origin",type = "rgb",shortdesc = "ray origin"},
+		{name = "ray_dir",type = "rgb",shortdesc = "ray dir"},
+		{name = "offset_map",type = "f",shortdesc = "offset"},
+		{name = "mask",type = "f",shortdesc = "mask"},
+	]
 func get_texture_parameter_name(output_name : String) ->String:
 	return "bake_%d_%s"%[get_instance_id(),output_name]
 	
@@ -147,9 +167,68 @@ func _deserialize(data : Dictionary) -> void:
 	pass
 
 func bake_maps():
-	bake_world_position()
+	bake_world_position(Vector2i(2048,2048))
 
-func bake_world_position():
+func render_input_texture(input_index : int,size:Vector2i)->MMTexture:
+	var source = get_source(input_index)
+	if source == null:
+		print("woot2")
+		return null
+	return await source.generator.render_output_to_texture(
+		source.output_index,
+		size
+	)
+func add_input_texture(pipeline:MMBakePipeline,uniform_name:String,input_index:int,size:Vector2i)->bool:
+	var tex = await render_input_texture(input_index,size)
+	print(uniform_name, tex)
+	if tex:
+		pipeline.add_parameter_or_texture(uniform_name,"sampler2D",tex)
+		return true
+	else:
+		print("woot")
+		return false
+
+func bake_world_position(bake_size:Vector2i):
+	if current_mesh == null:
+		return
+	var pipeline = MMBakePipeline.new()
+	var vertex_shader = load("res://addons/material_maker/map_generator/fullscreen_vertex.tres").text
+	var fragment_shader = load("res://addons/material_maker/map_generator/bake_fragment.tres").text
+	var bvh : MMTexture = MMTexture.new()
+	bvh.set_texture(current_bvh)
+	
+	pipeline.add_parameter_or_texture(
+		"bvh_data",
+		"sampler2D",
+		bvh
+	)
+	await add_input_texture(pipeline,"ray_origin",0,bake_size)
+	await add_input_texture(pipeline,"ray_dir",1,bake_size)
+	await add_input_texture(pipeline,"offset_map",2,bake_size)
+	await add_input_texture(pipeline,"mask",3,bake_size)
+	pipeline.add_parameter_or_texture(
+		"offset_scale",
+		"float",
+		get_parameter("offset_scale")
+	)
+	pipeline.add_parameter_or_texture(
+		"max_raylength",
+		"float",
+		get_parameter("max_raylength")
+	)
+	print("textures:")
+	for t in pipeline.input_textures:
+		print("  ", t.name)
+	if !await pipeline.set_shader(vertex_shader,fragment_shader):
+		push_error("Shader compilation failed")
+		return
+	baked_maps["world_position"] = MMTexture.new()
+	#pipeline.in_thread_render(Vector2i(2048,2048),3,world_pos_texture)
+	await pipeline.render(Vector2i(2048,2048),3,baked_maps["world_position"])
+	print("bake complete")
+	mm_deps.dependency_update(get_texture_parameter_name("world_position"),baked_maps["world_position"],true)
+	pass
+func bake_world_position_test():
 	if current_mesh == null:
 		return
 	var pipeline = MMMeshRenderingPipeline.new()
@@ -159,11 +238,14 @@ func bake_world_position():
 	var fragment_shader = load("res://addons/material_maker/map_generator/bake_fragment.tres").text
 	var bvh : MMTexture = MMTexture.new()
 	bvh.set_texture(current_bvh)
+	
+
 	pipeline.add_parameter_or_texture(
 		"bvh_data",
 		"sampler2D",
 		bvh
 	)
+	
 	if !await pipeline.set_shader(vertex_shader,fragment_shader):
 		push_error("Shader compilation failed")
 		return
