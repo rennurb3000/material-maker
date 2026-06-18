@@ -7,6 +7,7 @@ func draw_list_extra_setup(rd : RenderingDevice, draw_list : int, shader : RID, 
 	if mesh == null:
 		return
 	var buffers : Array[PackedByteArray] = []
+	#TODO (rennurb3000) i think thats a bug it only touches the first surface?
 	buffers.append(mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX].to_byte_array())
 	var bounding_box : AABB = mesh.get_aabb()
 	var bounding_box_array : PackedByteArray = PackedByteArray()

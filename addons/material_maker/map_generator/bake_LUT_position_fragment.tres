@@ -1,0 +1,23 @@
+[gd_resource type="Resource" script_class="TextResource" format=3 uid="uid://c3atv5g2a5fh3"]
+
+[ext_resource type="Script" uid="uid://bc3eljtuurjsd" path="res://addons/material_maker/engine/text_resource.gd" id="1_0bvqj"]
+
+[resource]
+script = ExtResource("1_0bvqj")
+text = "#version 450
+
+layout(location = 0) in vec3 vertex_position;
+layout(location = 0) out vec4 outColor;
+//layout(binding = 1, std430) buffer restrict readonly AABB {
+ //   float aabb[];
+//};
+void main()
+{
+	// position vertex
+	vec3 position = vertex_position;
+	//position = (position-vec3(aabb[0], aabb[1], aabb[2]))/vec3(aabb[3], aabb[4], aabb[5]);
+	outColor = vec4(position,1.0);
+//outColor = vec4(1.0,1.0,0.0,1.0);
+}
+
+"

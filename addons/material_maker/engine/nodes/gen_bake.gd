@@ -7,7 +7,7 @@ var filetime : int = 0
 
 var current_mesh : ArrayMesh = null
 var current_bvh = null
-
+var current_vertex_pos_lut :MMTexture = null
 var world_pos_texture : MMTexture
 
 var baked_maps := {
@@ -56,8 +56,23 @@ func reload_mesh():
 		current_bvh = MMBvhGenerator.generate(current_mesh,true)
 		var bvh_time = Time.get_ticks_msec() -bvh_start
 		print("BVH generation took %.3f s"%(bvh_time/1000.0))
-		
+		print("generate lut textures")
+		var vertex_count := get_vertex_count(current_mesh)
+		var lut_width := int (ceil(sqrt(vertex_count)))
+		current_vertex_pos_lut= MMTexture.new()
+		await render_vertex_lut(current_mesh,Vector2i(lut_width,lut_width),current_vertex_pos_lut,vertex_count)
+		#baked_maps["world_position"] = current_vertex_pos_lut
+		print("lut_textures created")
+		print("vertex count: ", vertex_count)
+		print("lut size: ", lut_width)
 	bake_maps()
+func get_vertex_count(mesh:ArrayMesh)->int:
+	var count := 0
+	for surface_idx in mesh.get_surface_count():
+		var arrays = mesh.surface_get_arrays(surface_idx)
+		var vertices : PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+		count+= vertices.size()
+	return count 
 func get_type() -> String:
 	return "bake"
 
@@ -127,7 +142,7 @@ func get_input_defs() -> Array:
 	]
 func get_texture_parameter_name(output_name : String) ->String:
 	return "bake_%d_%s"%[get_instance_id(),output_name]
-	
+
 func _get_shader_code(uv, _output_index, context) -> ShaderCode:
 	var rv := ShaderCode.new()
 	rv.output_type = "rgb"
@@ -202,6 +217,7 @@ func bake_world_position(bake_size:Vector2i):
 		"sampler2D",
 		bvh
 	)
+	pipeline.add_parameter_or_texture("vertex_position_lut","sampler2D",current_vertex_pos_lut)
 	await add_input_texture(pipeline,"ray_origin",0,bake_size)
 	await add_input_texture(pipeline,"ray_dir",1,bake_size)
 	await add_input_texture(pipeline,"offset_map",2,bake_size)
@@ -228,6 +244,20 @@ func bake_world_position(bake_size:Vector2i):
 	print("bake complete")
 	mm_deps.dependency_update(get_texture_parameter_name("world_position"),baked_maps["world_position"],true)
 	pass
+	
+func render_vertex_lut(mesh:Mesh,lut_size:Vector2i,target:MMTexture,vertex_count:int):
+	var pipeline = MMVertexLutPipeline.new()
+	pipeline.vertex_count = vertex_count
+	pipeline.add_parameter_or_texture("lut_width","float",float(lut_size.x))
+	pipeline.add_parameter_or_texture("lut_height","float",float(lut_size.y))
+	await pipeline.set_shader(
+		load("res://addons/material_maker/map_generator/bake_LUT_vertex.tres").text,
+		load("res://addons/material_maker/map_generator/bake_LUT_position_fragment.tres").text,
+	)
+	pipeline.mesh = mesh
+	return await pipeline.render(lut_size,MMRenderingPipeline.TEXTURE_TYPE_RGBA32F,target)
+	
+	
 func bake_world_position_test():
 	if current_mesh == null:
 		return

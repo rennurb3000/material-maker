@@ -1,0 +1,54 @@
+[gd_resource type="Resource" script_class="TextResource" format=3 uid="uid://b7kqft1hjyd74"]
+
+[ext_resource type="Script" uid="uid://bc3eljtuurjsd" path="res://addons/material_maker/engine/text_resource.gd" id="1_0bvqj"]
+
+[resource]
+script = ExtResource("1_0bvqj")
+text = "#version 450
+
+layout(location = 0) out vec3 vertex_position;
+layout(location = 1) out vec3 vertex_normal;
+layout(location = 2) out vec4 vertex_tangent;
+layout(location = 3) out vec2 vertex_uv;
+layout(location = 4) out vec4 vertex_color;
+
+layout(set = 1, binding = 0, std430) restrict readonly buffer Parameters {
+	float lut_width;
+};
+layout(binding = 0, std430) buffer restrict readonly Positions {
+	float positions[];
+};
+//layout(binding = 2, std430) buffer restrict readonly Normals {
+//	float normals[];
+//};
+//layout(binding = 3, std430) buffer restrict readonly Tangents {
+//	float tangents[];
+//};
+//layout(binding = 4, std430) buffer restrict readonly UVs {
+//	vec2 uvs[];
+//};
+//layout(binding = 5, std430) buffer restrict readonly Colors {
+//	vec4 colors[];
+//};
+void main() {
+
+	// find the lut texture coordinates
+   // check out godot shader builtins!
+	int vid = gl_VertexIndex;
+	float x = float(vid % int(lut_width));
+	float y = float(vid / int(lut_width));
+	//float x = float(vid % 205);
+	//float y = float(vid / 205);
+	//vec2 lut_uv = (vec2(x,y)+ vec2(0.5)) / vec2(lut_width,lut_width);
+	vec2 lut_uv = (vec2(x,y)+ vec2(0.5)) / 205.0;
+	
+	vertex_position = vec3(positions[3*vid+0],positions[3*vid+1],positions[3*vid+2]);
+	//vertex_normal = normalize(vec3(normals[3*vid+0],normals[3*vid+1],normals[3*vid+2]));
+	//vertex_tangent = vec4(tangents[4*vid+0],tangents[4*vid+1],tangents[4*vid+2],tangents[4*vid+3]);
+	//vertex_color = colors[vid];
+	//vertex_color = vec4(1.0,1.0,1.0,1.0);
+	//vertex_uv = uvs[vid];
+	gl_Position = vec4(lut_uv*2.0 -1.0,0.0,1.0);
+	gl_PointSize = 1.0;	
+}
+"

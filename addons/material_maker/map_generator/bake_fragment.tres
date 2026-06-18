@@ -8,11 +8,35 @@ text = "#version 450
 
 layout(location = 0) out vec4 outColor;
 layout(location = 0) in vec2 uv;
-
 @DECLARATIONS
 
 const float PI = 3.1415928;
 
+vec4 get_lut_entry(int vid)
+{
+	ivec2 size = textureSize(vertex_position_lut,0);
+	ivec2 coord = ivec2(vid%size.x,vid/size.x);
+	return texelFetch(vertex_position_lut,coord,0);
+}
+// converts the hit position into barycentric cordinates, which are used for interpolation
+// thanks cgr assignment ^^ 
+vec3 convert_barycentric(vec3 p,vec3 a,vec3 b,vec3 c){
+	vec3 v0 = b -a ;
+	vec3 v1 = c-a;
+	vec3 v2 = p-a;
+	float d00 = dot(v0,v0);
+	float d01 = dot(v0,v1);
+	float d11 = dot(v1,v1);
+	float d20 = dot(v2,v0);
+	float d21 = dot(v2,v1);
+	float denom = d00*d11 - d01*d01;
+
+	float v = (d11*d20-d01*d21)/denom;
+	float w= (d00*d21-d01*d20)/denom;
+	float u = 1.0 -v -w;
+	return vec3(u,v,w);
+
+}
 float intersect_aabb(vec3 ray_origin, vec3 ray_dir, vec3 box_min, vec3 box_max, bool solid) {
 	vec3 tMin = (box_min - ray_origin) / ray_dir;
 	vec3 tMax = (box_max - ray_origin) / ray_dir;
@@ -73,7 +97,7 @@ vec4 get_data(int index) {
 	), 0);
 }
 
-float intersects_bvh(vec3 ray_start, vec3 ray_dir, out vec3 normal_hit, out ivec3 hit_vids,out int hit_face) {
+float intersects_bvh(vec3 ray_start, vec3 ray_dir, out vec3 normal_hit, out ivec3 hit_vids,out int hit_face,out vec3 hit_tri_a,out vec3 hit_tri_b,out vec3 hit_tri_c) {
 	int offset_to_nodes = int(get_data(0)[0]);
 	vec4 root_data_0 = get_data(int(get_data(1)[0]) + offset_to_nodes);
 	vec4 root_data_1 = get_data(int(get_data(1)[0]) + offset_to_nodes + 1);
@@ -120,6 +144,9 @@ float intersects_bvh(vec3 ray_start, vec3 ray_dir, out vec3 normal_hit, out ivec
 							tri[0] = tri_a;
 							tri[1] = tri_b;
 							tri[2] = tri_c;
+							hit_tri_a = tri_a;
+							hit_tri_b = tri_b;
+							hit_tri_c = tri_c;
 							hit_vids = ivec3(int(hit_info.x),int(hit_info.y),int(hit_info.z));
 							hit_face = int(hit_info.w);
 //							print(curr_node_idx)
@@ -245,11 +272,21 @@ void main() {
 	vec3 normal_hit;
 	ivec3 hit_vids;
 	int hit_face;
-	float hit = intersects_bvh(origin,dir,normal_hit,hit_vids,hit_face);
+	vec3 tri_a;
+	vec3 tri_b;
+	vec3 tri_c;
+	float hit = intersects_bvh(origin,dir,normal_hit,hit_vids,hit_face,tri_a,tri_b,tri_c);
 	//if (hit == 65536.0)
 	//	outColor = vec4(1,0,0,1);
 	//else
 	//	outColor = vec4(0,1,0,1);
-	outColor = vec4(normal_hit * 0.5 + 0.5, 1.0);
+	vec3 hit_pos = origin + dir*hit;
+	vec3 bary = convert_barycentric(hit_pos,tri_a,tri_b,tri_c);
+	vec3 p0 = get_lut_entry(hit_vids.x).xyz;
+	vec3 p1 = get_lut_entry(hit_vids.y).xyz;
+	vec3 p2 = get_lut_entry(hit_vids.y).xyz;
+	vec3 interp_pos = p0*bary.x+p1*bary.y+p2*bary.z;
+	//outColor = vec4(normal_hit * 0.5 + 0.5, 1.0);
+	outColor = vec4(interp_pos,1.0);
 }
 "

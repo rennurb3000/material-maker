@@ -1,5 +1,7 @@
-class_name MMBakePipeline
-extends MMRenderingPipeline
+class_name MMVertexLutPipeline
+extends MMMeshRenderingPipeline
+
+var vertex_count : int = 0
 
 func get_input_texture_declarations() -> String:
 	print("BAKE_DECLARATIONS")
@@ -13,10 +15,15 @@ func set_shader(vertex_source : String, fragment_source : String, replaces : Dic
 	print(get_input_texture_declarations())
 	return await super.set_shader(vertex_source,fragment_source,replaces)
 
+func draw_list_extra_setup(rd : RenderingDevice, draw_list : int, shader : RID, rids : RIDs):
+	super.draw_list_extra_setup(rd,draw_list,shader,rids)
+	print("Setting mesh buffers ", mesh)
+
 func in_thread_render(size : Vector2i,
 	texture_type : int,
 	target_texture : MMTexture,
 	with_depth : bool = false):
+	print("LUT_PIPELINE drawing points: ",vertex_count)
 	var rd : RenderingDevice = mm_renderer.rendering_device
 	var rids : RIDs = RIDs.new()
 	
@@ -33,7 +40,7 @@ func in_thread_render(size : Vector2i,
 		shader,
 		rd.framebuffer_get_format(framebuffer),
 		-1,
-		RenderingDevice.RENDER_PRIMITIVE_TRIANGLES,
+		RenderingDevice.RENDER_PRIMITIVE_POINTS,
 		rasterization_state,
 		RDPipelineMultisampleState.new(),
 		RDPipelineDepthStencilState.new(),
@@ -51,17 +58,18 @@ func in_thread_render(size : Vector2i,
 		1.0,
 		0)
 	rd.draw_list_bind_render_pipeline(draw_list,pipeline)
+	draw_list_extra_setup(rd,draw_list,shader,rids)
 	var uniform_set_1: RID = RID()
 	if parameter_values.size()>0:
 		uniform_set_1 = get_parameter_uniforms(rd,shader,rids)	
 	var uniform_set_2 : RID = get_texture_uniforms(rd,shader,rids)
-
+	
 	if uniform_set_1.is_valid():
 		rd.draw_list_bind_uniform_set(draw_list,uniform_set_1,1)
 	if uniform_set_2.is_valid():
 		rd.draw_list_bind_uniform_set(draw_list,uniform_set_2,2)
 
-	rd.draw_list_draw(draw_list,false,1,3)
+	rd.draw_list_draw(draw_list,false,1,vertex_count)
 	rd.draw_list_end()
 	
 	rd.submit()
