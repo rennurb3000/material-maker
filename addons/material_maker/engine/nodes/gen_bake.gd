@@ -53,7 +53,7 @@ func reload_mesh():
 		print("loaded mesh with ",current_mesh.get_surface_count()," surfaces")
 		print("mesh load took %.3f s"% (load_time/1000.0))
 		var bvh_start = Time.get_ticks_msec()
-		current_bvh = MMBvhGenerator.generate(current_mesh)
+		current_bvh = MMBvhGenerator.generate(current_mesh,true)
 		var bvh_time = Time.get_ticks_msec() -bvh_start
 		print("BVH generation took %.3f s"%(bvh_time/1000.0))
 		

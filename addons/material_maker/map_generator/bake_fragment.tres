@@ -73,7 +73,7 @@ vec4 get_data(int index) {
 	), 0);
 }
 
-float intersects_bvh(vec3 ray_start, vec3 ray_dir, out vec3 normal_hit) {
+float intersects_bvh(vec3 ray_start, vec3 ray_dir, out vec3 normal_hit, out ivec3 hit_vids,out int hit_face) {
 	int offset_to_nodes = int(get_data(0)[0]);
 	vec4 root_data_0 = get_data(int(get_data(1)[0]) + offset_to_nodes);
 	vec4 root_data_1 = get_data(int(get_data(1)[0]) + offset_to_nodes + 1);
@@ -105,10 +105,13 @@ float intersects_bvh(vec3 ray_start, vec3 ray_dir, out vec3 normal_hit) {
 
 		if(!moving_up) { // Moving down node hierarchy
 			if(node_data_1[3] > 0.0) { // Is a leaf node
-				for(int j = node_data_off + 2; j < node_data_off + 2 + int(node_data_1[3]) * 3; j+=3) {
+				// NOTE: the only difference, compared to the ao shader is the leaf node size
+				// this contains vertex ids + face ids
+				for(int j = node_data_off + 2; j < node_data_off + 2 + int(node_data_1[3]) * 4; j+=4) {
 					vec3 tri_a = get_data(j).xyz;
 					vec3 tri_b = get_data(j + 1).xyz;
 					vec3 tri_c = get_data(j + 2).xyz;
+					vec4 hit_info =get_data(j+3);
 					float tri_t = intersects_triangle(ray_start, ray_dir,
 						tri_a, tri_b, tri_c
 					);
@@ -117,6 +120,8 @@ float intersects_bvh(vec3 ray_start, vec3 ray_dir, out vec3 normal_hit) {
 							tri[0] = tri_a;
 							tri[1] = tri_b;
 							tri[2] = tri_c;
+							hit_vids = ivec3(int(hit_info.x),int(hit_info.y),int(hit_info.z));
+							hit_face = int(hit_info.w);
 //							print(curr_node_idx)
 							min_node_idx = curr_node_idx;
 						}
@@ -238,7 +243,9 @@ void main() {
 	}
 	origin += normalize(dir) * offset * offset_scale;
 	vec3 normal_hit;
-	float hit = intersects_bvh(origin,dir,normal_hit);
+	ivec3 hit_vids;
+	int hit_face;
+	float hit = intersects_bvh(origin,dir,normal_hit,hit_vids,hit_face);
 	//if (hit == 65536.0)
 	//	outColor = vec4(1,0,0,1);
 	//else

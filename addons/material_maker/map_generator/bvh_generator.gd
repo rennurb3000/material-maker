@@ -1,7 +1,10 @@
 extends Object
 class_name MMBvhGenerator
 
-static func generate(mesh: Mesh) -> ImageTexture:
+# NOTE: (rennurb3000) I also need vertex ids in the node data,
+# so i can look up vertex attributes, like normal (tangent space) , uv ,vertex color
+# in a LUT later
+static func generate(mesh: Mesh,add_vertex_info : bool = false) -> ImageTexture:
 	var b_mesh := MeshDataTool.new()
 	if not mesh is ArrayMesh:
 		b_mesh.create_from_surface(mesh.create_outline(0.0), 0)
@@ -29,12 +32,13 @@ static func generate(mesh: Mesh) -> ImageTexture:
 	bvh.vertices = vertices
 	bvh.triangles = triangles
 	print("Generating BVH...")
+	print("Add vertex info = ",add_vertex_info)
 	var time := Time.get_ticks_msec()
-	var max_node_level := bvh.generate()
+	var max_node_level := bvh.generate(add_vertex_info)
 	print("BVH Generated!")
 	print("Maximum Node Level: %d" % max_node_level)
 	print("Time to generate BVH: %f" % ((Time.get_ticks_msec() - time) / 1000.0))
-
+	
 	return ImageTexture.create_from_image(bvh.image)
 
 
@@ -64,7 +68,8 @@ class BVHNode:
 	var _id_nodes: Dictionary
 	var _node_data: Array
 	var _data: Array
-
+	
+	var _add_vertex_info := false
 	# Gets all the nodes triangles, including its children.
 	func get_triangles() -> Array:
 		var tris := triangles.duplicate()
@@ -79,7 +84,8 @@ class BVHNode:
 	# Takes the triangles and splits itself into smaller nodes until
 	# each node has less than the maximum triangle count.
 	# Returns the maximum level that the bvh generates down to.
-	func generate() -> int:
+	func generate(add_vertex_info:bool=false) -> int:
+		_add_vertex_info = add_vertex_info
 		calculate_aabb()
 
 		if root == self:
@@ -111,6 +117,10 @@ class BVHNode:
 				_append_4(root._node_data, vert_a.x, vert_a.y, vert_a.z)
 				_append_4(root._node_data, vert_b.x, vert_b.y, vert_b.z)
 				_append_4(root._node_data, vert_c.x, vert_c.y, vert_c.z)
+				if add_vertex_info:
+					# for bakeing we need all 3 vertex ids
+					# tri[3] is the id
+					_append_4(root._node_data, tri[0], tri[1], tri[2],tri[3])
 			if root == self:
 				_finalize_data()
 			return level
@@ -151,6 +161,10 @@ class BVHNode:
 				_append_4(root._node_data, vert_a.x, vert_a.y, vert_a.z)
 				_append_4(root._node_data, vert_b.x, vert_b.y, vert_b.z)
 				_append_4(root._node_data, vert_c.x, vert_c.y, vert_c.z)
+				if add_vertex_info:
+					# for bakeing we need all 3 vertex ids
+					# tri[3] is the id
+					_append_4(root._node_data, tri[0], tri[1], tri[2],tri[3])
 			if root == self:
 				_finalize_data()
 			return level
@@ -179,7 +193,7 @@ class BVHNode:
 		left_node.level = level + 1
 		left_node.vertices = vertices
 		left_node.triangles = left_triangles
-		var left_max_level := left_node.generate()
+		var left_max_level := left_node.generate(add_vertex_info)
 		root._node_data[data_offset + 8] = root._node_ids[left_node]
 
 		right_node = new()
@@ -188,7 +202,7 @@ class BVHNode:
 		right_node.level = level + 1
 		right_node.vertices = vertices
 		right_node.triangles = right_triangles
-		var right_max_level := right_node.generate()
+		var right_max_level := right_node.generate(add_vertex_info)
 		root._node_data[data_offset + 9] = root._node_ids[right_node]
 
 		if root == self:
