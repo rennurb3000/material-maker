@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://cax1gm015ebmw"
+path="res://.godot/imported/scan_blocks.glsl-80007aedfb06340d4d1e8a702fd5213c.res"
+
+[deps]
+
+source_file="res://addons/material_maker/map_generator/lbvh/prefix/scan_blocks.glsl"
+dest_files=["res://.godot/imported/scan_blocks.glsl-80007aedfb06340d4d1e8a702fd5213c.res"]
+
+[params]
+

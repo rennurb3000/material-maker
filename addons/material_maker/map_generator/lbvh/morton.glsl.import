@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://0q5bxabmmr82"
+path="res://.godot/imported/morton.glsl-d76ff04fa2c5ba46a203304955a069bb.res"
+
+[deps]
+
+source_file="res://addons/material_maker/map_generator/lbvh/morton.glsl"
+dest_files=["res://.godot/imported/morton.glsl-d76ff04fa2c5ba46a203304955a069bb.res"]
+
+[params]
+

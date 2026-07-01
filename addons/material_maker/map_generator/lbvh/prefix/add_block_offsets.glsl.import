@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://bhsa0y287bwvb"
+path="res://.godot/imported/add_block_offsets.glsl-b197253e3734ccdf93c524703f8438ef.res"
+
+[deps]
+
+source_file="res://addons/material_maker/map_generator/lbvh/prefix/add_block_offsets.glsl"
+dest_files=["res://.godot/imported/add_block_offsets.glsl-b197253e3734ccdf93c524703f8438ef.res"]
+
+[params]
+

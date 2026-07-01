@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://cqw3t6xhun3w4"
+path="res://.godot/imported/build_bounding_boxes.glsl-eb7ee416409a36617d448f2f8490854e.res"
+
+[deps]
+
+source_file="res://addons/material_maker/map_generator/lbvh/build_bounding_boxes.glsl"
+dest_files=["res://.godot/imported/build_bounding_boxes.glsl-eb7ee416409a36617d448f2f8490854e.res"]
+
+[params]
+

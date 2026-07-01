@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://cphshvwqhkig8"
+path="res://.godot/imported/sort_morton_codes.glsl-413d611e59ea1ad35e302aac6d985b61.res"
+
+[deps]
+
+source_file="res://addons/material_maker/map_generator/lbvh/sort_morton_codes.glsl"
+dest_files=["res://.godot/imported/sort_morton_codes.glsl-413d611e59ea1ad35e302aac6d985b61.res"]
+
+[params]
+

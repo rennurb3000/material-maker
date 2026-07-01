@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://d3bpa2rkeml82"
+path="res://.godot/imported/build_hierarchy.glsl-a7d47c6b2afd9f5b454993ad9d7b86a9.res"
+
+[deps]
+
+source_file="res://addons/material_maker/map_generator/lbvh/build_hierarchy.glsl"
+dest_files=["res://.godot/imported/build_hierarchy.glsl-a7d47c6b2afd9f5b454993ad9d7b86a9.res"]
+
+[params]
+

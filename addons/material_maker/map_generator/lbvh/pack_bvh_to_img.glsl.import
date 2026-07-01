@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://bisy8ycn5fu6n"
+path="res://.godot/imported/pack_bvh_to_img.glsl-6abfd20a02c28ec445264a97791be791.res"
+
+[deps]
+
+source_file="res://addons/material_maker/map_generator/lbvh/pack_bvh_to_img.glsl"
+dest_files=["res://.godot/imported/pack_bvh_to_img.glsl-6abfd20a02c28ec445264a97791be791.res"]
+
+[params]
+

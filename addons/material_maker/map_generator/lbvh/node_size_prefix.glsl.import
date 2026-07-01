@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://b6tqc3xsng4yl"
+path="res://.godot/imported/node_size_prefix.glsl-c2f61288d5ec1e29c8500e972412d3b7.res"
+
+[deps]
+
+source_file="res://addons/material_maker/map_generator/lbvh/node_size_prefix.glsl"
+dest_files=["res://.godot/imported/node_size_prefix.glsl-c2f61288d5ec1e29c8500e972412d3b7.res"]
+
+[params]
+

@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://bihq17qyw0vr5"
+path="res://.godot/imported/triangle_aabb.glsl-bd397708aa93c9c51b442fb6d6ee036b.res"
+
+[deps]
+
+source_file="res://addons/material_maker/map_generator/lbvh/triangle_aabb.glsl"
+dest_files=["res://.godot/imported/triangle_aabb.glsl-bd397708aa93c9c51b442fb6d6ee036b.res"]
+
+[params]
+
