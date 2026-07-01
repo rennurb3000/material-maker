@@ -65,12 +65,12 @@ func _dispatch_scan_blocks(input_buffer:RID,
 	var block_uniform := RDUniform.new()
 	block_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
 	block_uniform.binding = 2
-	output_uniform.add_id(block_sum_buffer)
+	block_uniform.add_id(block_sum_buffer)
 	uniforms.push_back(block_uniform)
 	
 	var uniform_set := _rd.uniform_set_create(uniforms,_scan_shader,0)
 	var push_constants := PackedByteArray()
-	push_constants.resize(4)
+	push_constants.resize(16)
 	push_constants.encode_u32(0,element_count)
 	
 	var compute_list := _rd.compute_list_begin()
@@ -98,12 +98,12 @@ func _dispatch_add_block_offsets(output_buffer:RID,
 	var block_offset_uniform := RDUniform.new()
 	block_offset_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
 	block_offset_uniform.binding = 1
-	output_uniform.add_id(block_offset_buffer)
+	block_offset_uniform.add_id(block_offset_buffer)
 	uniforms.push_back(block_offset_uniform)
 	
 	var uniform_set := _rd.uniform_set_create(uniforms,_add_block_offset_shader,0)
 	var push_constants := PackedByteArray()
-	push_constants.resize(4)
+	push_constants.resize(16)
 	push_constants.encode_u32(0,element_count)
 	
 	var compute_list := _rd.compute_list_begin()

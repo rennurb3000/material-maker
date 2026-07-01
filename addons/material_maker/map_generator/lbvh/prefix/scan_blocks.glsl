@@ -34,7 +34,7 @@ void main()
     uint i0 = start+ lID;
     uint i1 = start+ WORKGROUP_SIZE + lID;
     temp[lID] = (i0 <g_num_elements)? g_input[i0]:0u;
-    temp[WORKGROUP_SIZE + lID] = (i0 <g_num_elements)? g_input[i0]:0u;
+    temp[WORKGROUP_SIZE + lID] = (i0 <g_num_elements)? g_input[i1]:0u;
     barrier();
 
     // upsweep
@@ -54,7 +54,7 @@ void main()
         temp[ELEMENTS_PER_GROUP -1u] = 0u;
     }
     // downsweep
-    for(uint stride = ELEMENTS_PER_GROUP >> 1; stride>0; stride >> 1u)
+    for(uint stride = ELEMENTS_PER_GROUP >> 1; stride>0; stride >>= 1u)
     {
         barrier();
         uint idx = (lID + 1u) * stride * 2u - 1u;
