@@ -53,7 +53,9 @@ func reload_mesh():
 		print("loaded mesh with ",current_mesh.get_surface_count()," surfaces")
 		print("mesh load took %.3f s"% (load_time/1000.0))
 		var bvh_start = Time.get_ticks_msec()
-		current_bvh = MMBvhGenerator.generate(current_mesh,true)
+		current_bvh = MMBvhGeneratorGPU.generate(current_mesh,true,mm_renderer.rendering_device)
+		assert(current_bvh!=null)
+		print(current_bvh)
 		var bvh_time = Time.get_ticks_msec() -bvh_start
 		print("BVH generation took %.3f s"%(bvh_time/1000.0))
 		print("generate lut textures")

@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://bw8657c55mc6b"
+path="res://.godot/imported/generate_node_levels.glsl-ee7280a6200de3849da0446e125f32ef.res"
+
+[deps]
+
+source_file="res://addons/material_maker/map_generator/lbvh/generate_node_levels.glsl"
+dest_files=["res://.godot/imported/generate_node_levels.glsl-ee7280a6200de3849da0446e125f32ef.res"]
+
+[params]
+

@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://c2h2nafn2ueeo"
+path="res://.godot/imported/writeout_mm_bvh.glsl-fbb101754970c722fbff3850fc01cf54.res"
+
+[deps]
+
+source_file="res://addons/material_maker/map_generator/lbvh/writeout_mm_bvh.glsl"
+dest_files=["res://.godot/imported/writeout_mm_bvh.glsl-fbb101754970c722fbff3850fc01cf54.res"]
+
+[params]
+

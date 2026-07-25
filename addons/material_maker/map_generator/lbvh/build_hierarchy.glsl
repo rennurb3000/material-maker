@@ -150,6 +150,17 @@ void main() {
     if (gID < g_num_elements) {
         Element element = g_elements[g_sorted_morton_codes[gID].elementIdx];
         g_lbvh[LEAF_OFFSET + gID] = LBVHNode(INVALID_POINTER, INVALID_POINTER, element.primitiveIdx, element.aabbMinX, element.aabbMinY, element.aabbMinZ, element.aabbMaxX, element.aabbMaxY, element.aabbMaxZ);
+        // TEST
+        // g_lbvh[LEAF_OFFSET +gID].left = -123;
+        // g_lbvh[LEAF_OFFSET +gID].right= -456;
+        // g_lbvh[LEAF_OFFSET +gID].primitiveIdx = 99999;
+        // g_lbvh[LEAF_OFFSET +gID].aabbMinX = 1;
+        // g_lbvh[LEAF_OFFSET +gID].aabbMinY = 2;
+        // g_lbvh[LEAF_OFFSET +gID].aabbMinZ = 3;
+        // g_lbvh[LEAF_OFFSET +gID].aabbMaxX = 4;
+        // g_lbvh[LEAF_OFFSET +gID].aabbMaxY = 5;
+        // g_lbvh[LEAF_OFFSET +gID].aabbMaxZ= 6;
+        
     }
 
     // construct internal nodes

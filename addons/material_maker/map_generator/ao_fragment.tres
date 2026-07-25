@@ -1,6 +1,6 @@
-[gd_resource type="Resource" script_class="TextResource" load_steps=2 format=3 uid="uid://cuveny5onbhr2"]
+[gd_resource type="Resource" script_class="TextResource" format=3 uid="uid://cuveny5onbhr2"]
 
-[ext_resource type="Script" path="res://addons/material_maker/engine/text_resource.gd" id="1_oqegj"]
+[ext_resource type="Script" uid="uid://bc3eljtuurjsd" path="res://addons/material_maker/engine/text_resource.gd" id="1_oqegj"]
 
 [resource]
 script = ExtResource("1_oqegj")
@@ -111,6 +111,10 @@ float intersects_bvh(vec3 ray_start, vec3 ray_dir, out vec3 normal_hit) {
 					vec3 tri_a = get_data(j).xyz;
 					vec3 tri_b = get_data(j + 1).xyz;
 					vec3 tri_c = get_data(j + 2).xyz;
+					//TEST
+					//
+					return 0.0;
+					// /TEST
 					float tri_t = intersects_triangle(ray_start, ray_dir,
 						tri_a, tri_b, tri_c
 					);
