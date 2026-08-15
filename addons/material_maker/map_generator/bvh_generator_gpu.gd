@@ -268,7 +268,7 @@ func _generate_element_aabbs(ctx:Dictionary)->BVHStatus:
 	var uniform_set := _rd.uniform_set_create(uniforms,_triangle_aabb_shader,0)
 	var tri_count : int = ctx[KEY_INDICES].size()/3
 	var push_constants := PackedByteArray()
-	push_constants.resize(16) # NOTE got issues with 4
+	push_constants.resize(4)
 	push_constants.encode_u32(0,tri_count)
 	
 	var compute_list := _rd.compute_list_begin()
@@ -330,7 +330,7 @@ func _generate_morton_codes(ctx:Dictionary)->BVHStatus:
 	var aabb : AABB = ctx[KEY_SCENE_AABB]
 	
 	var push_constants := PackedByteArray()
-	push_constants.resize(32) # 1*4 2*12 = 28+ alignment
+	push_constants.resize(28) # 1*4 2*12 = 28+ alignment
 	push_constants.encode_u32(0,primitive_count)
 	push_constants.encode_float(4,aabb.position.x)
 	push_constants.encode_float(8,aabb.position.y)
@@ -408,7 +408,7 @@ func _sort_morton_codes(ctx:Dictionary) -> BVHStatus:
 	
 	var uniform_set := _rd.uniform_set_create(uniforms,_radix_shader,1)
 	var push_constants := PackedByteArray()
-	push_constants.resize(16)
+	push_constants.resize(4)
 	push_constants.encode_u32(0,num_elements)
 	
 	var compute_list := _rd.compute_list_begin()
@@ -496,7 +496,7 @@ func _build_hierarchy(ctx:Dictionary)->BVHStatus:
 	var uniform_set := _rd.uniform_set_create(uniforms,_hierarchy_shader,2) #the original shader uses set 2, why not
 	
 	var push_constants = PackedByteArray()
-	push_constants.resize(16)# NOTE was 8, seems i need multiple of 16
+	push_constants.resize(8)# NOTE was 8, seems i need multiple of 16
 	push_constants.encode_u32(0,num_elements)
 	push_constants.encode_u32(4,1) # absolute pointers
 	
@@ -530,7 +530,7 @@ func _build_bounding_boxes(ctx:Dictionary)->BVHStatus:
 	
 	var uniform_set := _rd.uniform_set_create(uniforms,_bb_node_shader,3)
 	var push_constants := PackedByteArray()
-	push_constants.resize(16)
+	push_constants.resize(8)
 	push_constants.encode_u32(0,num_elements)
 	push_constants.encode_u32(4,1)# absolute pointers
 	
@@ -626,7 +626,7 @@ func _calculate_node_sizes(ctx)->BVHStatus:
 		0
 	)
 	var push_constants := PackedByteArray()
-	push_constants.resize(16)
+	push_constants.resize(4)
 	push_constants.encode_u32(0,node_count)
 	
 	var compute_list := _rd.compute_list_begin()
@@ -665,7 +665,7 @@ func _calculate_node_levels(ctx:Dictionary)->BVHStatus:
 		0
 	)
 	var push_constants := PackedByteArray()
-	push_constants.resize(16)
+	push_constants.resize(8)
 	push_constants.encode_u32(0,total_nodes)
 	var compute_list := _rd.compute_list_begin()
 	_rd.compute_list_bind_compute_pipeline(compute_list,_node_levels_pipeline)
@@ -737,7 +737,7 @@ func _writeout_mm_bvh(ctx:Dictionary)->BVHStatus:
 		0
 	)
 	var push_constants := PackedByteArray()
-	push_constants.resize(16)
+	push_constants.resize(12)
 	push_constants.encode_u32(0,total_nodes)
 	push_constants.encode_u32(4, node_data_start)
 	push_constants.encode_u32(8, ctx[KEY_SIDE])

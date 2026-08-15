@@ -24,6 +24,7 @@ var need_save_crash_recovery : bool = false
 var top_generator = null
 var generator = null
 
+var grab_accumulation : Dictionary[String, Vector2]
 @onready var grab_icon := preload("res://material_maker/icons/grab.svg")
 var has_grab : bool = false:
 	set(v):
@@ -34,6 +35,7 @@ var has_grab : bool = false:
 					grab_icon.get_size() * 0.5)
 		else:
 			Input.set_custom_mouse_cursor(null)
+			grab_accumulation.clear()
 
 const PREVIEW_COUNT = 2
 var current_preview : Array = [ null, null ]
@@ -57,6 +59,8 @@ var drag_cut_line : PackedVector2Array
 var valid_drag_cut_entry: bool = false
 const CURSOR_HOT_SPOT : Vector2 = Vector2(1.02, 17.34)
 
+const LASSO_CURSOR : DPITexture = preload("res://material_maker/icons/cross.svg")
+const LASSO_HOT_SPOT : Vector2 = Vector2(8.8, 8.8)
 var lasso_points : PackedVector2Array
 
 var is_dragging_connection : bool = false:
@@ -77,6 +81,12 @@ func _ready() -> void:
 		add_valid_connection_type(t, 42)
 		add_valid_connection_type(42, t)
 	node_popup.about_to_popup.connect(func(): valid_drag_cut_entry = false)
+
+	# workaround for godot issue 120454
+	for node in get_children(true):
+		if "GraphEditFilter" in node.name:
+			node.get_child(0).use_parent_material = false
+			break
 
 func _exit_tree():
 	remove_crash_recovery_file()
@@ -135,15 +145,29 @@ func process_port_click(pressed : bool):
 						return
 
 
-func _input(event: InputEvent) -> void:
+func _input(event : InputEvent) -> void:
 	# Handle node grab
 	if has_grab:
 		var selected_nodes := get_selected_nodes()
 		if event is InputEventMouseMotion:
-			for node in selected_nodes:
+			for node : GraphElement in selected_nodes:
 				if node is not MMGraphComment:
 					node.move_to_front()
-				node.position_offset += event.relative / zoom
+
+				if snapping_enabled != event.is_command_or_control_pressed():
+					if not grab_accumulation.has(node.name):
+						grab_accumulation[node.name] = Vector2.ZERO
+					grab_accumulation[node.name] += event.relative / zoom
+
+					var step : Vector2 = (grab_accumulation[node.name] / snapping_distance
+							+ Vector2(0.5, 0.5)).floor()
+					if not step.is_zero_approx():
+						node.position_offset = node.position_offset.snappedf(snapping_distance)
+						node.position_offset += step * snapping_distance
+						grab_accumulation[node.name] -= step * snapping_distance
+				else:
+					node.position_offset += event.relative / zoom
+
 		elif (event is InputEventMouseButton
 				and event.button_index == MOUSE_BUTTON_LEFT):
 			accept_event()
@@ -156,6 +180,14 @@ func _input(event: InputEvent) -> void:
 					if get_nodes_under_mouse().is_empty():
 						node.set_deferred("selected", true)
 
+	# Grab graph focus for quick bar shortcuts to work properly
+	# (i.e. returning to graph after interacting with other panels)
+	if Rect2(Vector2.ZERO, size).has_point(get_local_mouse_position()) and event is InputEventKey:
+		var focus_owner : Control = get_viewport().gui_get_focus_owner()
+		if focus_owner is LineEdit or focus_owner is TextEdit:
+			return
+		if event.unicode >= KEY_0 and event.unicode <= KEY_9 and event.pressed:
+			grab_focus()
 
 func _gui_input(event) -> void:
 	if (
@@ -202,6 +234,7 @@ func _gui_input(event) -> void:
 				for point in node_points:
 					node.selected = node.selected or Geometry2D.is_point_in_polygon(point,  lasso_points)
 		lasso_points.clear()
+		Input.set_custom_mouse_cursor(null)
 		queue_redraw()
 	elif event.is_action_pressed("ui_hierarchy_up"):
 		on_ButtonUp_pressed()
@@ -299,6 +332,9 @@ func _gui_input(event) -> void:
 						has_grab = true
 				KEY_ESCAPE:
 					has_grab = false
+				_ when event.unicode >= KEY_0 and event.unicode <= KEY_9:
+					if get_nodes_under_mouse().is_empty():
+						quick_bar_shortcuts(event)
 		match event.get_keycode():
 			KEY_SHIFT, KEY_CTRL, KEY_ALT:
 				var found_tip : bool = false
@@ -326,6 +362,9 @@ func _gui_input(event) -> void:
 			if rect.has_point(get_global_mouse_position()):
 				mm_globals.set_tip_text("Space/#RMB: Nodes menu, Arrow keys: Pan, Mouse wheel: Zoom", 3)
 
+		if get_closest_connection_at_point(get_local_mouse_position()):
+			mm_globals.set_tip_text("Ctrl + #RMB: Cut connections, Shift + #RMB: Create reroute, Ctrl/Cmd + Shift + #RMB: Create aperture pair")
+
 		if ((event.button_mask & MOUSE_BUTTON_MASK_RIGHT) != 0 and valid_drag_cut_entry
 				and event.relative.length() > 1.0):
 			if event.ctrl_pressed:
@@ -340,11 +379,18 @@ func _gui_input(event) -> void:
 		# lasso selection
 		if (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0 and event.alt_pressed:
 			accept_event()
+			if event.relative.length() > 0.0:
+				Input.set_custom_mouse_cursor(LASSO_CURSOR, Input.CURSOR_ARROW, LASSO_HOT_SPOT)
 			lasso_points.append(get_local_mouse_position())
 			queue_redraw()
 		elif (event.button_mask & MOUSE_BUTTON_MASK_LEFT) != 0 and event.shift_pressed:
 			scroll_offset -= event.relative
 			accept_event()
+		else:
+			if not (has_grab or drag_cut_line.size()):
+				Input.set_custom_mouse_cursor(null)
+			lasso_points.clear()
+			queue_redraw()
 
 
 func get_padded_node_rect(graph_node:GraphNode) -> Rect2:
@@ -464,6 +510,7 @@ func on_connect_node(from : String, from_slot : int, to : String, to_slot : int)
 		for n in [ from_node, to_node ]:
 			if n.has_method("on_connections_changed"):
 				n.on_connections_changed()
+	mm_steam.increase_stat("stat_connections")
 
 func do_disconnect_node(from : String, from_slot : int, to : String, to_slot : int) -> bool:
 	var from_node : MMGraphNodeMinimal = get_node(from)
@@ -692,6 +739,12 @@ func do_create_nodes(data, nodes_position : Vector2 = Vector2(0, 0)) -> Array:
 	if data.has("nodes") and typeof(data.nodes) == TYPE_ARRAY and data.has("connections") and typeof(data.connections) == TYPE_ARRAY:
 		var new_stuff = await mm_loader.add_to_gen_graph(generator, data.nodes, data.connections, nodes_position)
 		var return_value = update_graph(new_stuff.generators, new_stuff.connections)
+		if new_stuff.generators.size() == 1:
+			if new_stuff.generators[0] is MMGenMeshMap:
+				mm_steam.unlock_achievement("ACH_BAKE_IT_TILL_YOU_MAKE_IT")
+			elif new_stuff.generators[0] is MMGenDebug:
+				mm_steam.unlock_achievement("ACH_UNDER_THE_HOOD")
+		mm_steam.increase_stat("stat_nodes", new_stuff.generators.size())
 		return return_value
 	return []
 
@@ -752,12 +805,11 @@ func load_file(filename) -> bool:
 	else:
 		var dialog : AcceptDialog = AcceptDialog.new()
 		add_child(dialog)
-		var content_scale_factor = (mm_globals.main_window
-				.get_window().content_scale_factor)
+		var content_scale_factor : float = mm_globals.ui_scale_factor()
 		dialog.content_scale_factor = content_scale_factor
+		dialog.min_size = dialog.get_contents_minimum_size() * content_scale_factor
 		dialog.title = "Load failed!"
 		dialog.dialog_text = "Failed to load "+filename
-		dialog.min_size = dialog.get_contents_minimum_size() * content_scale_factor
 		dialog.connect("popup_hide", Callable(dialog, "queue_free"))
 		dialog.popup_centered()
 		return false
@@ -785,10 +837,24 @@ func load_from_recovery(filename) -> bool:
 
 # Save
 
+func generate_project_thumbnail() -> String:
+	var preview_vp : SubViewport
+	if not has_node("PreviewViewport"):
+		preview_vp = load("res://material_maker/tools/share/preview_viewport.tscn").instantiate()
+		add_child(preview_vp)
+	else:
+		preview_vp = get_node("PreviewViewport")
+	await mm_globals.main_window.update_preview_3d([preview_vp])
+	var preview : ImageTexture = await preview_vp.get_preview(0)
+	var img : Image = preview.get_image()
+	@warning_ignore("integer_division")
+	img.resize(48, 48 * preview.get_height() / preview.get_width(), Image.INTERPOLATE_LANCZOS)
+	return Marshalls.raw_to_base64(img.save_webp_to_buffer(true))
+
 func save() -> bool:
 	var status = false
 	if save_path != "":
-		status = save_file(save_path)
+		status = await save_file(save_path)
 	else:
 		status = await save_as()
 	return status
@@ -799,7 +865,7 @@ func save_as() -> bool:
 		add_child(dialog)
 		var status = await dialog.enter_text("Save", "Select a file name", save_path.get_file() if save_path != null else "")
 		if status.ok:
-			if save_file(status.text.get_file().get_basename()+".ptex"):
+			if await save_file(status.text.get_file().get_basename()+".ptex"):
 				top_generator.emit_signal("hierarchy_changed")
 	else:
 		var dialog = preload("res://material_maker/windows/file_dialog/file_dialog.tscn").instantiate()
@@ -811,16 +877,17 @@ func save_as() -> bool:
 		dialog.current_dir = mm_globals.config.get_value("path", "project", mm_globals.get_home_directory())
 		var files = await dialog.select_files()
 		if files.size() == 1:
-			if save_file(files[0]):
+			if await save_file(files[0]):
 				main_window.add_recent(save_path)
 				mm_globals.config.set_value("path", "project", save_path.get_base_dir())
 				top_generator.emit_signal("hierarchy_changed")
 				return true
 	return false
 
-func save_file(filename:String) -> bool:
+func save_file(filename : String) -> bool:
 	mm_loader.current_project_path = filename.get_base_dir()
 	var data = top_generator.serialize()
+	data["project_thumbnail"] = await generate_project_thumbnail()
 	mm_loader.current_project_path = ""
 	var e: Error
 	if OS.get_name() == "HTML5":
@@ -852,12 +919,18 @@ func get_material_node() -> MMGenMaterial:
 	return null
 
 func export_material(export_prefix, profile) -> void:
-	var exports : Array
-	for g in top_generator.get_children():
-		if g.has_method("get_export_profiles"):
-			await g.export_material(export_prefix, profile)
-		elif g.has_method("export_material"):
-			exports.append(g)
+	var exports : Array[MMGenBase]
+
+	var material_node : MMGenMaterial = get_material_node()
+	if material_node != null:
+		await material_node.export_material(export_prefix, profile)
+
+	var stack : Array[MMGenBase] = [top_generator]
+	while stack.size():
+		var node : MMGenBase = stack.pop_back()
+		if node.has_method("export_material"):
+			exports.append(node)
+		stack.append_array(node.get_children())
 
 	# Show progress for additional exports (export nodes)
 	var dim_color_rect = ColorRect.new()
@@ -936,6 +1009,9 @@ func serialize_selection(nodes = [], with_inputs : bool = false) -> Dictionary:
 			var connection = c.duplicate(true)
 			connection.from = from.generator.name
 			connection.to = to.generator.name
+			connection.erase("from_node")
+			connection.erase("to_node")
+			connection.erase("keep_alive")
 			data.connections.append(connection)
 	return data
 
@@ -1064,6 +1140,7 @@ func create_subgraph() -> void:
 	undoredo_create_step("Create subgraph", generator.get_hier_name(), prev, next)
 	if subgraph != null:
 		update_view(subgraph)
+		mm_steam.unlock_achievement("ACH_INCEPTION")
 
 
 func _on_ButtonShowTree_pressed() -> void:
@@ -1138,7 +1215,7 @@ func get_current_preview(slot : int = 0) -> Preview:
 	return current_preview[slot]
 
 
-func set_current_preview(slot: int, node: GraphNode, output_index: int = 0, locked := false, force_unlock := false) -> void:
+func set_current_preview(slot : int, node : GraphNode, output_index : int = 0, locked : bool = false, force_unlock := false) -> void:
 	var preview = null
 	var old_preview = null
 	var old_locked_preview = null
@@ -1151,6 +1228,8 @@ func set_current_preview(slot: int, node: GraphNode, output_index: int = 0, lock
 			locked_preview[slot] = null
 		else:
 			locked_preview[slot] = preview
+		if slot > 0:
+			mm_steam.unlock_achievement("ACH_DOUBLE_VISION")
 	else:
 		if is_instance_valid(node) and current_preview[slot] != null and current_preview[slot].generator != node.generator:
 			old_preview = current_preview[slot].generator
@@ -1648,29 +1727,29 @@ func add_reroute_to_output(node : MMGraphNodeMinimal, port_index : int) -> void:
 	undoredo_create_step("Reroute output", generator.get_hier_name(), prev, next)
 
 func _get_connection_line(from : Vector2, to : Vector2) -> PackedVector2Array:
-	var off := 15.0 * connection_lines_curvature * 0.5 * zoom
-	var points := PackedVector2Array()
-	var mid := (from + to) * 0.5
+	var off : float = 15.0 * connection_lines_curvature * 0.5 * zoom
+	var points : PackedVector2Array = PackedVector2Array()
+	var mid : Vector2 = (from + to) * 0.5
 	match connection_line_style:
 		ConnectionStyle.DIRECT:
 			if to.x > from.x:
 				off += (to.x - from.x) * 0.1
-			var ma := Vector2(maxf(mid.x, from.x + off), mid.y)
-			var mb := Vector2(minf(mid.x, to.x - off), mid.y)
-			var f1 := Vector2(from.x + off, from.y)
-			var t1 := Vector2(to.x - off, to.y)
+			var ma : Vector2 = Vector2(maxf(mid.x, from.x + off), mid.y)
+			var mb : Vector2 = Vector2(minf(mid.x, to.x - off), mid.y)
+			var f1 : Vector2 = Vector2(from.x + off, from.y)
+			var t1 : Vector2 = Vector2(to.x - off, to.y)
 			points.append_array([from, f1, (f1 + ma) * 0.5, (t1 + mb) * 0.5, t1, to])
 			return points
 
 		ConnectionStyle.BEZIER:
 		# default behavior, adapted from:
 		# github.com/godotengine/godot/blob/4.4/scene/gui/graph_edit.cpp#L1282
-			var x_diff := to.x - from.x
-			var cp_offset := x_diff * connection_lines_curvature
-			if x_diff < 0:
-				cp_offset *= -1
+			var x_diff : float = to.x - from.x
+			var cp_offset : float = x_diff * connection_lines_curvature
+			if x_diff < 0.0:
+				cp_offset *= -1.0
 
-			var curve := Curve2D.new()
+			var curve : Curve2D = Curve2D.new()
 			curve.add_point(from)
 			curve.set_point_out(0, Vector2(cp_offset, 0))
 			curve.add_point(to)
@@ -1682,118 +1761,118 @@ func _get_connection_line(from : Vector2, to : Vector2) -> PackedVector2Array:
 				return curve.tessellate(1)
 
 		ConnectionStyle.MANHATTAN:
-			if abs(from.x - to.x) < 0.5 or abs(from.y - to.y) < 0.5:
+			if absf(from.x - to.x) < 0.5 or absf(from.y - to.y) < 0.5:
 				return PackedVector2Array([from, to])
-			var ma := Vector2(maxf(mid.x, from.x + off), mid.y)
-			var mb := Vector2(minf(mid.x, to.x - off), mid.y)
-			var f1 := Vector2(maxf(mid.x, from.x + off), from.y)
-			var t1 := Vector2(mb.x, to.y)
+			var ma : Vector2 = Vector2(maxf(mid.x, from.x + off), mid.y)
+			var mb : Vector2 = Vector2(minf(mid.x, to.x - off), mid.y)
+			var f1 : Vector2 = Vector2(maxf(mid.x, from.x + off), from.y)
+			var t1 : Vector2 = Vector2(mb.x, to.y)
 			points.append_array([from, f1, ma, mb, t1, to])
 			return points
 
 		ConnectionStyle.ROUNDED:
-			if abs(from.x - to.x) < 0.5 or abs(from.y - to.y) < 0.5:
+			if absf(from.x - to.x) < 0.5 or absf(from.y - to.y) < 0.5:
 				return PackedVector2Array([from,to])
-			var mb := mid
+			var mb : Vector2 = mid
 			points.append(from)
 
-			const pts := 12.0 # corner arc resolution
-			var max_radius := 75.0 # max. arc radius when from < to
-			var inv_max_radius := 25.0 # max. arc radius when from > to
+			const pts : float = 12.0 # corner arc resolution
+			var max_radius : float = 75.0 # max. arc radius when from < to
+			var inv_max_radius : float = 25.0 # max. arc radius when from > to
 
-			var round_fac := clampf(connection_lines_curvature * 0.5, 0.0, 1.0)
+			var round_fac : float = clampf(connection_lines_curvature * 0.5, 0.0, 1.0)
 			max_radius = maxf(max_radius * round_fac, 4.0)
 			inv_max_radius = maxf(inv_max_radius * round_fac , 2.0)
 
-			var r := minf(minf(absf(to.y - from.y) * 0.25,
+			var r : float = minf(minf(absf(to.y - from.y) * 0.25,
 					absf(from.x - to.x) * 0.25), max_radius)
 
 			if from.x < to.x:
 				for i : float in range(pts):
-					var x := lerpf(mid.x - r, mid.x, i/pts)
-					var y := lerpf(from.y, from.y + r * signf(to.y - from.y), i/pts)
+					var x : float = lerpf(mid.x - r, mid.x, i/pts)
+					var y : float = lerpf(from.y, from.y + r * signf(to.y - from.y), i/pts)
 					points.append(Vector2(x, from.y).lerp(Vector2(mid.x, y), i/pts))
 
 				for i : float in range(pts):
-					var x := lerpf(mid.x, mid.x + r, i/pts)
-					var y := lerpf(to.y + r * sign(from.y - to.y), to.y, i/pts)
+					var x : float = lerpf(mid.x, mid.x + r, i/pts)
+					var y : float = lerpf(to.y + r * sign(from.y - to.y), to.y, i/pts)
 					points.append(Vector2(mid.x, y).lerp(Vector2(x , to.y), i/pts))
 			else:
 				r = minf(r, inv_max_radius)
 				for i : float in range(pts):
-					var x := lerpf(from.x, from.x + r, i/pts)
-					var y := lerpf(from.y, from.y + r * signf(to.y - from.y), i/pts)
+					var x : float = lerpf(from.x, from.x + r, i/pts)
+					var y : float = lerpf(from.y, from.y + r * signf(to.y - from.y), i/pts)
 					points.append(Vector2(x , from.y).lerp(Vector2(from.x + r, y), i/pts))
 
-				var last := points[points.size() - 1]
+				var last : Vector2 = points[points.size() - 1]
 				mb.x = last.x
-				var voff := last.y + 0.01 * signf(mid.y - last.y)
+				var voff : float = last.y + 0.01 * signf(mid.y - last.y)
 				mb.y = minf(mid.y + r, voff) if from.y > to.y else maxf(mid.y - r, voff)
 				points.append(mb)
 
 				if from.y < to.y:
 					var t1 := Vector2(points[points.size() - 1].x, mb.y)
 					for i : float in range(pts):
-						var x := lerpf(t1.x, t1.x - r, i/pts)
-						var y := lerpf(t1.y, t1.y + r, i/pts)
+						var x : float = lerpf(t1.x, t1.x - r, i/pts)
+						var y : float = lerpf(t1.y, t1.y + r, i/pts)
 						points.append(Vector2(t1.x, y).lerp(Vector2(x , t1.y + r), i/pts))
 
-					var t2 := Vector2(to.x, mb.y + r)
+					var t2 : Vector2 = Vector2(to.x, mb.y + r)
 					r = minf(absf(t2.y - to.y) * 0.5, r)
 					for i : float in range(1, pts):
-						var x := lerpf(t2.x, t2.x - r, i/pts)
-						var y := lerpf(t2.y, t2.y + r, i/pts)
+						var x : float = lerpf(t2.x, t2.x - r, i/pts)
+						var y : float = lerpf(t2.y, t2.y + r, i/pts)
 						points.append(Vector2(x, t2.y).lerp(Vector2(t2.x - r, y), i/pts))
 
-					var t3 := Vector2(to.x - r, to.y - r)
+					var t3 : Vector2 = Vector2(to.x - r, to.y - r)
 					for i : float in range(pts):
-						var x := lerpf(t3.x, t3.x + r, i/pts)
-						var y := lerpf(t3.y, t3.y + r, i/pts)
+						var x : float = lerpf(t3.x, t3.x + r, i/pts)
+						var y : float = lerpf(t3.y, t3.y + r, i/pts)
 						points.append(Vector2(t3.x, y).lerp(Vector2(x , t3.y + r), i/pts))
 				else:
-					var t4 := points[points.size() - 1]
+					var t4 : Vector2 = points[points.size() - 1]
 
 					r = minf(absf(t4.y - to.y) * 0.5, r)
 					for i : float in range(pts):
-						var x := lerpf(t4.x, t4.x - r, i/pts)
-						var y := lerpf(t4.y, t4.y - r, i/pts)
+						var x : float = lerpf(t4.x, t4.x - r, i/pts)
+						var y : float = lerpf(t4.y, t4.y - r, i/pts)
 						points.append(Vector2(t4.x, y).lerp(Vector2(x, t4.y - r),i/pts))
 
-					var t5 := Vector2(to.x, t4.y - r)
+					var t5 : Vector2 = Vector2(to.x, t4.y - r)
 					r = minf(absf(t5.y - to.y) * 0.5, r)
 					for i : float in range(pts):
-						var x := lerpf(t5.x, t5.x - r, i/pts)
-						var y := lerpf(t5.y, t5.y - r, i/pts)
+						var x : float = lerpf(t5.x, t5.x - r, i/pts)
+						var y : float = lerpf(t5.y, t5.y - r, i/pts)
 						points.append(Vector2(x, t5.y).lerp(Vector2(t5.x - r ,y), i/pts))
 
-					var t6 := Vector2(to.x - r, to.y + r)
+					var t6 : Vector2 = Vector2(to.x - r, to.y + r)
 					for i : float in range(pts):
-						var x := lerpf(t6.x, t6.x + r, i/pts)
-						var y := lerpf(t6.y, t6.y - r, i/pts)
+						var x : float = lerpf(t6.x, t6.x + r, i/pts)
+						var y : float = lerpf(t6.y, t6.y - r, i/pts)
 						points.append(Vector2(t6.x, y).lerp(Vector2(x , t6.y - r), i/pts))
 			points.append(to)
 			return points
 
 		ConnectionStyle.DIAGONAL:
-			var start := from
-			var end := to
+			var start : Vector2 = from
+			var end : Vector2 = to
 			from.x += off
 			to.x -= off
 
-			if abs(from.x - to.x) < 0.5:
+			if absf(from.x - to.x) < 0.5:
 				return PackedVector2Array([start, from, to, end])
-			elif abs(from.y - to.y) < 0.5:
+			elif absf(from.y - to.y) < 0.5:
 				return PackedVector2Array([start, end])
 
-			var diff := mid - from
-			var from_a := mid - Vector2(diff.y, diff.y)
-			var mid_b := mid + Vector2(diff.x, diff.x)
-			var corner_from := Vector2(from.x, mid.y)
-			var corner_to := Vector2(to.x, mid.y)
+			var diff : Vector2 = mid - from
+			var from_a : Vector2 = mid - Vector2(diff.y, diff.y)
+			var mid_b : Vector2 = mid + Vector2(diff.x, diff.x)
+			var corner_from : Vector2 = Vector2(from.x, mid.y)
+			var corner_to : Vector2 = Vector2(to.x, mid.y)
 
-			var stack := (func(dir: float, diff_y: float) -> void:
-				var max_off := absf(diff_y) * 0.5
-				var h_offset = (corner_from.x - max_off) - (corner_to.x + max_off) >= 0.0
+			var stack : Callable = (func(dir : float, diff_y : float) -> void:
+				var max_off : float = absf(diff_y) * 0.5
+				var h_offset : bool = (corner_from.x - max_off) - (corner_to.x + max_off) >= 0.0
 				if not h_offset:
 					max_off = clampf(diff.x * 0.5, -diff.x, diff.y)
 				points.append(from)
@@ -1830,6 +1909,20 @@ func _get_connection_line(from : Vector2, to : Vector2) -> PackedVector2Array:
 		_:
 			return points
 
+func quick_bar_shortcuts(event : InputEventKey) -> void:
+	if not Rect2(Vector2.ZERO, size).has_point(get_local_mouse_position()):
+		return
+	var key_num : int = event.unicode - KEY_0 - 1
+	key_num = 9 if key_num == -1 else key_num
+
+	var library_manager : Node = get_node("/root/MainWindow/NodeLibraryManager")
+	var quick_button_key : String = "quick_button_%d" % [key_num]
+
+	if mm_globals.config.has_section_key("library", quick_button_key):
+		var config : String = mm_globals.config.get_value("library", quick_button_key)
+		if config != "" and library_manager.get_item(config):
+			do_paste(library_manager.get_item(config).item)
+
 func colorize_nodes() -> void:
 	var nodes : Array[GraphElement]
 	for n in get_children():
@@ -1839,8 +1932,9 @@ func colorize_nodes() -> void:
 		return
 	undoredo.start_group()
 
-	var picker = ColorPicker.new()
+	var picker : ColorPicker = ColorPicker.new()
 	var popup : PopupPanel = PopupPanel.new()
+	popup.borderless = not mm_globals.get_config("color_picker_floating")
 	popup.add_child(picker)
 	popup.hide()
 	add_child(popup)
@@ -1857,8 +1951,11 @@ func colorize_nodes() -> void:
 		mm_globals.set_config("color_picker_color_mode", picker.color_mode)
 		mm_globals.set_config("color_picker_shape", picker.picker_shape))
 
-	popup.content_scale_factor = csf
-	popup.min_size = popup.get_contents_minimum_size() * csf
+	if get_tree().root.gui_embed_subwindows:
+		csf = 1.0
+	else:
+		popup.content_scale_factor = csf
+		popup.min_size = popup.get_contents_minimum_size() * csf
 	popup.position = get_screen_position() + get_local_mouse_position() * csf
 
 	picker.color = nodes[0].generator.color
@@ -1875,7 +1972,7 @@ func _on_resized() -> void:
 
 func create_portals() -> void:
 	const tolerance_pixels : float = 2.0
-	var connection := get_closest_connection_at_point(
+	var connection : Dictionary = get_closest_connection_at_point(
 			get_local_mouse_position(), connection_lines_thickness + tolerance_pixels)
 	if connection.is_empty():
 		return
@@ -1884,8 +1981,8 @@ func create_portals() -> void:
 
 	var from_node : MMGraphNodeMinimal = get_node(NodePath(connection.from_node))
 	var to_node : MMGraphNodeMinimal = get_node(NodePath(connection.to_node))
-	var outpos := from_node.position_offset + from_node.get_output_port_position(connection.from_port)
-	var inpos := to_node.position_offset + to_node.get_input_port_position(connection.to_port)
+	var outpos : Vector2 = from_node.position_offset + from_node.get_output_port_position(connection.from_port)
+	var inpos : Vector2 = to_node.position_offset + to_node.get_input_port_position(connection.to_port)
 
 	outpos += Vector2(50, -12)
 	inpos += Vector2(-70, -12)
@@ -1938,3 +2035,18 @@ func _on_connection_drag_started(_from_node : StringName, _from_port : int, _is_
 
 func _on_connection_drag_ended() -> void:
 	is_dragging_connection = false
+
+func _on_button_reroll_pressed() -> void:
+	undoredo.start_group()
+	for node in get_children():
+		if (node is MMGraphNodeMinimal and node.has_method("on_randomness_pressed")
+				and node.randomness_button.visible):
+			if Input.is_key_pressed(KEY_SHIFT):
+				if node.selected:
+					node.on_randomness_pressed()
+			else:
+				node.on_randomness_pressed()
+	undoredo.end_group()
+
+func _on_button_reroll_mouse_entered() -> void:
+	mm_globals.set_tip_text("#LMB: Reroll all nodes, Shift+#LMB: Reroll selected nodes")

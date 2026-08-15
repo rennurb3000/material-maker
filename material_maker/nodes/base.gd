@@ -83,6 +83,8 @@ func on_minimize_pressed():
 
 func on_randomness_pressed():
 	reroll_generator_seed()
+	mm_steam.unlock_achievement("ACH_SEED_OF_CHAOS")
+
 
 func randomness_button_create_popup():
 	var menu : PopupMenu = PopupMenu.new()
@@ -335,7 +337,7 @@ func _on_gui_input(event) -> void:
 				edit_generator()
 	elif event is InputEventMouseMotion:
 		var epos : Vector2 = event.position
-		if Rect2(0, 0, size.x-56, 16).has_point(epos):
+		if Rect2(0.0, 0.0, size.x - 56.0 , 16.0).abs().has_point(epos):
 			var description = generator.get_description()
 			if description != "":
 				tooltip_text = MMGraphNodeBase.wrap_string(description)
@@ -458,7 +460,7 @@ func _on_menu_id_pressed(id : int) -> void:
 				status.append({ ok=false, message="The following outputs do not have a short and a long description: "+", ".join(bad) })
 			# Show warning dialog
 			var dialog = preload("res://material_maker/tools/share/share_node_dialog.tscn").instantiate()
-			dialog.content_scale_factor = mm_globals.main_window.get_window().content_scale_factor
+			dialog.content_scale_factor = mm_globals.ui_scale_factor()
 			dialog.min_size = Vector2(600, 400) * dialog.content_scale_factor
 			var result = await dialog.ask(status)
 			if result != "ok":
@@ -466,9 +468,9 @@ func _on_menu_id_pressed(id : int) -> void:
 			var node = generator.serialize()
 			var share_button = mm_globals.main_window.get_share_button()
 			var renderer = await generator.render(self, 0, 1024, true)
-			var preview_texture : ImageTexture = ImageTexture.create_from_image(renderer.get_image())
+			var preview_textures : Array[Texture2D] = [ImageTexture.create_from_image(renderer.get_image())]
 			renderer.release(self)
-			share_button.send_asset("node", node, preview_texture)
+			share_button.send_asset("node", node, preview_textures)
 
 var edit_generator_prev_state : Dictionary
 var edit_generator_next_state : Dictionary

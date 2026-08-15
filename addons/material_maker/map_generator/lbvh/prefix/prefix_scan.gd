@@ -70,7 +70,7 @@ func _dispatch_scan_blocks(input_buffer:RID,
 	
 	var uniform_set := _rd.uniform_set_create(uniforms,_scan_shader,0)
 	var push_constants := PackedByteArray()
-	push_constants.resize(16)
+	push_constants.resize(4)
 	push_constants.encode_u32(0,element_count)
 	
 	var compute_list := _rd.compute_list_begin()
@@ -103,7 +103,7 @@ func _dispatch_add_block_offsets(output_buffer:RID,
 	
 	var uniform_set := _rd.uniform_set_create(uniforms,_add_block_offset_shader,0)
 	var push_constants := PackedByteArray()
-	push_constants.resize(16)
+	push_constants.resize(4)
 	push_constants.encode_u32(0,element_count)
 	
 	var compute_list := _rd.compute_list_begin()

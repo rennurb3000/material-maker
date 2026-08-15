@@ -5,9 +5,12 @@ const LABEL_FONT = preload("res://material_maker/theme/font_rubik/Rubik-416.ttf"
 
 ## Whether portal's link is being edited
 ## (i.e. its associated LineEdit is visible)
-var is_editing := false
+var is_editing : bool = false
 
-var syncing_io := false
+var syncing_io : bool = false
+
+var is_navigating_source : bool = false
+const label_y_offset : float = 35.0
 
 func _ready() -> void:
 	super._ready()
@@ -22,19 +25,24 @@ func update_node() -> void:
 
 func _draw() -> void:
 	const label_font_size : int = 16
-	const label_y_offset : int = 40
 
 	# in/out arc decoration
 	var offset : float = PI if is_portal_out() else 0.0
 	draw_rounded_arc(size * 0.5, 12.0, PI * 0.35 + offset, -PI * 0.35 + offset, get_slot_color_left(0), 5.0, true)
 
 	# label
-	var label_pos := size * 0.5
+	var label_pos : Vector2 = size * 0.5
 	var label_color : Color = generator.color
+	var label_draw_pos : Vector2 = label_pos
+	var label_size : Vector2 = LABEL_FONT.get_string_size(
+			get_link(), HORIZONTAL_ALIGNMENT_CENTER, -1, label_font_size)
 
-	var label_size = LABEL_FONT.get_string_size(get_link(), HORIZONTAL_ALIGNMENT_CENTER, -1, label_font_size)
-	var label_draw_pos := label_pos - Vector2(label_size.x * 0.5, label_y_offset)
 	if not is_editing:
+		if generator.horizontal_label:
+			label_draw_pos += Vector2(31.0 if is_portal_in() else (-label_size.x - 31.0), 5.0)
+		else:
+			label_draw_pos -= Vector2(label_size.x * 0.5, label_y_offset)
+
 		draw_string_outline(LABEL_FONT, label_draw_pos, get_link(), HORIZONTAL_ALIGNMENT_CENTER, -1, label_font_size, 5, Color.BLACK)
 		draw_string(LABEL_FONT, label_draw_pos, get_link(), HORIZONTAL_ALIGNMENT_CENTER, -1, label_font_size, label_color)
 
@@ -54,7 +62,7 @@ func set_generator(g : MMGenBase) -> void:
 	notify_redraw()
 
 func on_gen_target_updated(gen_name : String) -> void:
-	var node_path := NodePath("node_" + gen_name)
+	var node_path : NodePath = NodePath("node_" + gen_name)
 	if get_parent() != null and get_parent().has_node(node_path):
 		get_parent().get_node(node_path).on_connections_changed.call_deferred()
 
@@ -76,22 +84,74 @@ func _exit_tree() -> void:
 				node.reset_slot()
 
 func _gui_input(event : InputEvent) -> void:
-	if event is InputEventMouseButton and event.double_click:
+	if event is InputEventMouseButton and event.double_click and not event.alt_pressed:
 		setup_portal_edit()
 
+func mouse_in_node_rect() -> bool:
+	return Rect2(Vector2.ZERO, size).has_point(get_local_mouse_position())
+
+func mouse_in_label_rect() -> bool:
+	return %Dragger.get_rect().has_point(get_local_mouse_position())
+
+func set_link_hint(enabled : bool) -> void:
+	if is_portal_out():
+		for node : Control in [self, %Dragger]:
+			node.mouse_default_cursor_shape = CURSOR_POINTING_HAND if enabled else CURSOR_ARROW
+
+func jump_to_source() -> void:
+	if is_navigating_source or is_portal_in():
+		return
+	is_navigating_source = true
+	set_link_hint(false)
+	var graph : MMGraphEdit = get_parent()
+	if not graph:
+		return
+	var source_portal : MMGraphPortal = get_link_source(get_link(), graph)
+	if source_portal != null:
+		graph.scroll_offset = (source_portal.position_offset
+			+ 0.5 * source_portal.size) * graph.zoom - 0.5 * graph.size
+
+		var tween : Tween = get_tree().create_tween()
+		tween.tween_property(source_portal, "modulate", Color(1.5, 1.5, 1.5, 1.0), 0.2).set_trans(Tween.TRANS_CUBIC)
+		tween.tween_property(source_portal, "modulate", Color.WHITE, 0.6).set_trans(Tween.TRANS_CUBIC).set_delay(0.5)
+		source_portal.set_deferred("selected", true)
+		await tween.finished
+	is_navigating_source = false
+
+func set_portal_tip_text() -> void:
+	const editing_tip : String = "Enter: Rename, Ctrl/Cmd+Enter: Batch rename"
+	var normal_tip = "%s#LMB: Select node, #LMB#LMB/F2/Enter: Rename"
+	normal_tip = normal_tip % ["Alt + #LMB: Jump to source, " if is_portal_out() else ""]
+	if mouse_in_node_rect():
+		mm_globals.set_tip_text(tr(normal_tip), 1.0, 2)
+	elif mouse_in_label_rect():
+		mm_globals.set_tip_text(tr(editing_tip if is_editing else normal_tip), 1.0, 2)
+
 func _input(event : InputEvent) -> void:
-	if event is InputEventKey and event.pressed and selected and not is_editing:
+	if event is InputEventKey and event.pressed:
 		match event.get_keycode_with_modifiers():
 			KEY_F2, KEY_ENTER:
-				setup_portal_edit()
+				if selected and not is_editing:
+					setup_portal_edit()
+			KEY_ALT:
+				set_link_hint(event.pressed)
+			KEY_R:
+				if selected:
+					generator.horizontal_label = !generator.horizontal_label
+					queue_redraw()
 	elif event is InputEventMouseMotion:
+		const tip : String = "#LMB: Select node, #LMB#LMB/F2/Enter: Rename link, R: Toggle label position"
 		if Rect2(Vector2.ZERO, size).has_point(get_local_mouse_position()):
-			mm_globals.set_tip_text(tr("#LMB: Select node, #LMB#LMB/F2/Enter: Rename link"), 1.0, 2)
+			mm_globals.set_tip_text(tr(tip), 1.0, 2)
 		elif %Dragger.get_rect().has_point(get_local_mouse_position()):
-			if is_editing:
-				mm_globals.set_tip_text(tr("Enter: Rename link, Ctrl/Cmd+Enter: Batch rename links"), 1.0, 2)
-			else:
-				mm_globals.set_tip_text(tr("#LMB: Select node, #LMB#LMB: Rename link"), 1.0, 2)
+			mm_globals.set_tip_text(
+					tr("Enter: Rename link, Ctrl/Cmd+Enter: Batch rename links" if is_editing else tip))
+	elif event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT and event.pressed:
+		if event.alt_pressed and (mouse_in_node_rect() or mouse_in_label_rect()):
+			accept_event()
+			jump_to_source()
+	else:
+		set_link_hint(false)
 
 func _on_dragger_gui_input(event : InputEvent) -> void:
 	if event is InputEventMouseButton and event.button_index == MOUSE_BUTTON_LEFT:
@@ -120,8 +180,8 @@ func reset_slot() -> void:
 func add_link_undoredo(old_link : String, new_link : String) -> void:
 	if old_link != new_link and get_parent().get("undoredo") != null:
 		var node_hier_name : String = generator.get_hier_name()
-		var undo_command = { type="setparams", node=node_hier_name, params={ link=old_link } }
-		var redo_command = { type="setparams", node=node_hier_name, params={ link=new_link } }
+		var undo_command : Dictionary = { type="setparams", node=node_hier_name, params={ link=old_link } }
+		var redo_command : Dictionary = { type="setparams", node=node_hier_name, params={ link=new_link } }
 		get_parent().undoredo.add("Set link parameter", [ undo_command ], [ redo_command ], false)
 
 func get_link() -> String:
@@ -133,9 +193,9 @@ func sync_io_slots() -> void:
 		return
 	syncing_io = true
 	await get_tree().process_frame
-	var color := Color.WHITE
-	var type := 42
-	var port_type := "any"
+	var color : Color = Color.WHITE
+	var type : int = 42
+	var port_type : String = "any"
 	if is_portal_in():
 		var source_node : MMGraphPortal = get_link_source(get_link(), graph_edit)
 		for w in graph_edit.get_children():
@@ -165,9 +225,9 @@ func on_connections_changed() -> void:
 		var graph_edit : MMGraphEdit = get_parent()
 		if graph_edit == null:
 			return
-		var color := Color.WHITE
-		var type := 42
-		var port_type := "any"
+		var color : Color = Color.WHITE
+		var type : int = 42
+		var port_type : String = "any"
 		for c in graph_edit.get_connection_list():
 			if c.to_node == name and is_portal_in():
 				var node : MMGraphNodeMinimal = graph_edit.get_node(NodePath(c.from_node))
@@ -209,7 +269,7 @@ func set_unique_portal_link() -> void:
 		if name == "node_" + generator.get_type():
 			generator.set_parameter("link", "aperture_1")
 		else:
-			var next_available_id := 2
+			var next_available_id : int = 2
 			var graph : GraphEdit = get_parent()
 			var portal_input_links : PackedStringArray = graph.get_children().filter(
 					func(w) -> bool: return w is MMGraphPortal and w.is_portal_in() and w != self).map(
@@ -232,8 +292,8 @@ func set_link_from_selection() -> void:
 func set_color(c : Color) -> void:
 	if c == generator.color:
 		return
-	var _undo_action = { type="node_color_change", node=generator.get_hier_name(), color=generator.color }
-	var _redo_action = { type="node_color_change", node=generator.get_hier_name(), color=c }
+	var _undo_action : Dictionary = { type="node_color_change", node=generator.get_hier_name(), color=generator.color }
+	var _redo_action : Dictionary = { type="node_color_change", node=generator.get_hier_name(), color=c }
 	get_parent().undoredo.add("Change portal color", [_undo_action], [_redo_action], false)
 	generator.color = c
 	queue_redraw()
@@ -247,7 +307,7 @@ func replace_links(new_link : String, from_link : String) -> void:
 	var g : MMGraphEdit = get_parent()
 	if g == null:
 		return
-	var existing_input := get_link_source(new_link, g) != null
+	var existing_input : bool = get_link_source(new_link, g) != null
 	for p in g.get_children():
 		if p is MMGraphPortal and p != self and p.get_link() == from_link:
 			p.add_link_undoredo(p.get_link(), new_link)
@@ -257,23 +317,28 @@ func replace_links(new_link : String, from_link : String) -> void:
 				p.on_parameter_changed("link", new_link)
 
 func edit_box_set_position(edit : LineEdit) -> void:
-	const y_offset : int = 61
+	var y_offset : float = label_y_offset + 21.0
 	var g : MMGraphEdit = get_parent()
 	if g == null:
 		edit.queue_free()
 		return
 	edit.scale = Vector2.ONE * g.zoom
 	edit.position = graph_node_center(self, g)
-	edit.position -= Vector2(edit.size.x * 0.5 - 0.5, y_offset) * g.zoom
+
+	if generator.horizontal_label:
+		edit.alignment = HORIZONTAL_ALIGNMENT_LEFT if is_portal_in() else HORIZONTAL_ALIGNMENT_RIGHT
+		edit.position -= Vector2(-21.0 if is_portal_in() else edit.size.x + 21.0, edit.size.y * 0.5) * g.zoom
+	else:
+		edit.position -= Vector2(edit.size.x * 0.5 - 0.5, y_offset) * g.zoom
 
 func setup_portal_edit() -> void:
 	if is_editing:
 		return
 	is_editing = true
 
-	var old_link := get_link()
+	var old_link : String = get_link()
 	var graph : MMGraphEdit = get_parent()
-	var edit := LineEdit.new()
+	var edit : LineEdit = LineEdit.new()
 	edit.add_theme_font_override("font", LABEL_FONT)
 	edit.alignment = HORIZONTAL_ALIGNMENT_CENTER
 	edit.max_length = 64
@@ -285,31 +350,28 @@ func setup_portal_edit() -> void:
 	position_offset_changed.connect(edit_box_set_position.bind(edit))
 	graph.draw.connect(edit_box_set_position.bind(edit))
 
-	edit.modulate = link_collision_warning_color(get_link())
+	edit.modulate = link_collision_warning_color()
+
 	edit.text_submitted.connect(
 		func(new_text : String) -> void:
 			if not is_editing:
 				return
-			var new_link := new_text.strip_edges()
-			if not new_link.is_empty():
-				if is_link_unique(new_link):
-					graph.undoredo.start_group()
-					on_parameter_changed("link", new_link)
-					add_link_undoredo(old_link, new_link)
-					if Input.is_key_pressed(KEY_CTRL) or Input.is_key_pressed(KEY_META):
-						replace_links(new_link, old_link)
-					graph.undoredo.end_group()
-				else:
-					on_parameter_changed("link", old_link)
+			var new_link : String = new_text.strip_edges()
+			if not new_link.is_empty() and is_link_unique(new_link):
+				graph.undoredo.start_group()
+				on_parameter_changed("link", new_link)
+				add_link_undoredo(old_link, new_link)
+				if Input.is_key_pressed(KEY_CTRL) or Input.is_key_pressed(KEY_META):
+					replace_links(new_link, old_link)
+				graph.undoredo.end_group()
 			is_editing = false
 			generator.editable = false
 			edit.reset_size()
 			edit.queue_free())
 	edit.text_changed.connect(
 		func(new_text : String) -> void:
-			var new_link := new_text.strip_edges()
+			var new_link : String = new_text.strip_edges()
 			if not new_link.is_empty():
-				on_parameter_changed("link", new_link)
 				edit.modulate = link_collision_warning_color(new_link)
 			edit_box_set_position(edit))
 	edit.focus_exited.connect(func(): edit.text_submitted.emit(edit.text))
@@ -336,9 +398,9 @@ static func draw_links(g : MMGraphEdit) -> void:
 	const link_width : float = 5.0
 
 	var zoom : float = g.zoom
-	var in_color := g.get_theme_color("in_color", "MM_Portal")
-	var out_color := g.get_theme_color("out_color", "MM_Portal")
-	var link_color := g.get_theme_color("link", "MM_Portal")
+	var in_color : Color = g.get_theme_color("in_color", "MM_Portal")
+	var out_color : Color = g.get_theme_color("out_color", "MM_Portal")
+	var link_color : Color = g.get_theme_color("link", "MM_Portal")
 
 	for node in g.get_children():
 		if node is not MMGraphPortal:
@@ -347,7 +409,7 @@ static func draw_links(g : MMGraphEdit) -> void:
 
 		# portal link and circular highlight
 		if wo.is_portal_out():
-			var wi := get_link_source(wo.get_link(), g)
+			var wi : MMGraphPortal = get_link_source(wo.get_link(), g)
 			if wi == null:
 				continue
 			var from : Vector2 = graph_node_center(wi, g)
@@ -359,10 +421,10 @@ static func draw_links(g : MMGraphEdit) -> void:
 				g.draw_circle(to, circle_r * zoom, out_color, false, circle_outline_width * zoom, true)
 
 				# arrow
-				var mid := (from + to) * 0.5
-				var dir_a := (from - to).normalized().rotated(-PI * 0.25)
-				var dir_b := (from - to).normalized().rotated(PI * 0.25)
-				var aw := maxf(20.0 * zoom, 15.0)
+				var mid : Vector2 = (from + to) * 0.5
+				var dir_a : Vector2 = (from - to).normalized().rotated(-PI * 0.25)
+				var dir_b : Vector2 = (from - to).normalized().rotated(PI * 0.25)
+				var aw : float = maxf(20.0 * zoom, 15.0)
 				g.draw_multiline(PackedVector2Array([
 					mid, mid + dir_a * aw,
 					mid, mid + dir_b * aw]), link_color, link_width*0.8, true)

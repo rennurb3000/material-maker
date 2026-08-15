@@ -27,7 +27,7 @@ const BUFFER_NAMES = [ "export_animation_buffer_begin", "export_animation_buffer
 
 
 func _ready():
-	content_scale_factor = mm_globals.main_window.get_window().content_scale_factor
+	content_scale_factor = mm_globals.ui_scale_factor()
 	min_size = $VBox.get_combined_minimum_size() * content_scale_factor
 	for i in range(BUFFER_NAMES.size()):
 		mm_deps.create_buffer(BUFFER_NAMES[i], self)
@@ -161,6 +161,8 @@ func _on_Export_pressed():
 		image_anim.material.set_shader_parameter("end", end)
 		image_anim.material.set_shader_parameter("mm_chunk_size", 1.0)
 		image_anim.material.set_shader_parameter("mm_chunk_offset", Vector2(0.0, 0.0))
+		
+		mm_steam.unlock_achievement("ACH_IT_S_ALIVE")
 
 	if mm_globals.get_config("remember_anim_export"):
 		mm_globals.set_config("export_animation_size", value_size.selected)

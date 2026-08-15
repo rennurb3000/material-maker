@@ -34,7 +34,7 @@ func _ready():
 		$ScrollContainer/Languages.add_child(button)
 		button.connect("pressed", Callable(self, "download_language").bind(l))
 	var minimum_size : Vector2i = $ScrollContainer/Languages.get_minimum_size()
-	content_scale_factor = mm_globals.main_window.get_window().content_scale_factor
+	content_scale_factor = mm_globals.ui_scale_factor()
 	minimum_size *= content_scale_factor
 	popup(Rect2i($ScrollContainer.get_global_mouse_position()*content_scale_factor, minimum_size))
 
@@ -46,4 +46,5 @@ func download_language(l : String):
 	$HTTPRequest.download_file = locale.get_translations_dir().path_join(l+"."+ext)
 	var error = $HTTPRequest.request(languages[l].url)
 	if error == OK:
-		print("Downloading")
+		#print("Downloading")
+		mm_steam.unlock_achievement("ACH_POLYGLOT")

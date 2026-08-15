@@ -12,6 +12,8 @@ var last_mouse_pos : Vector2
 signal value_changed(value : MMPixels)
 signal unhandled_event(event : InputEvent)
 
+var achievement_submitted : bool = false
+
 
 func _ready() -> void:
 	super()
@@ -53,8 +55,8 @@ func update_color_buttons() -> void:
 			var color_button : ColorPickerButton = ColorPickerButton.new()
 			color_button.ready.connect(func():
 				var popup = color_button.get_popup()
-				popup.content_scale_factor = mm_globals.main_window.get_window().content_scale_factor
-				popup.min_size =popup.get_contents_minimum_size() * popup.content_scale_factor)
+				popup.content_scale_factor = mm_globals.ui_scale_factor()
+				popup.min_size = popup.get_contents_minimum_size() * popup.content_scale_factor)
 			color_button.custom_minimum_size = Vector2i(25, 25)
 			color_button.theme_type_variation = "MM_PanelMenuButton"
 			color_button.tooltip_text = "Click to select; Right click to change color"
@@ -84,6 +86,9 @@ func draw_pixel() -> void:
 	pixels.set_color_index(pixel_position.x, pixel_position.y, current_color)
 	queue_redraw()
 	self.value_changed.emit(pixels)
+	if not achievement_submitted:
+		mm_steam.unlock_achievement("ACH_MARGOTS_FAVORITE")
+		achievement_submitted = true
 
 func draw_pixel_line() -> void:
 	var from : Vector2 = reverse_transform_point(last_mouse_pos)
@@ -94,6 +99,9 @@ func draw_pixel_line() -> void:
 		pixels.set_color_index(pixel.x, pixel.y, current_color)
 	queue_redraw()
 	self.value_changed.emit(pixels)
+	if not achievement_submitted:
+		mm_steam.unlock_achievement("ACH_MARGOTS_FAVORITE")
+		achievement_submitted = true
 
 func _on_PixelsEditor_gui_input(event : InputEvent):
 	if event is InputEventMouseButton:

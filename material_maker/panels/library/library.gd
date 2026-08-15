@@ -22,13 +22,8 @@ const MENU_LOAD_LIBRARY : int =   1001
 
 const default_theme : Theme = preload("res://material_maker/theme/default.tres")
 
-func _context_menu_about_to_popup(context_menu : PopupMenu) -> void:
-	context_menu.position = get_window().position+ Vector2i(
-			get_global_mouse_position() * get_window().content_scale_factor)
 
 func _ready() -> void:
-	%Filter.get_menu().about_to_popup.connect(
-			_context_menu_about_to_popup.bind(%Filter.get_menu()))
 	# Setup tree
 	tree.set_column_expand(0, true)
 	tree.set_column_expand(1, false)
@@ -215,9 +210,41 @@ func get_icon_name(item_name : String) -> String:
 
 func _on_Filter_text_changed(_filter : String) -> void:
 	update_tree()
+	mm_steam.unlock_achievement("ACH_TREASURE_HUNTER")
+
+func generate_transparent_node_sceenshot(node : GraphElement, save_path : String) -> void:
+	var csf : float = get_tree().root.content_scale_factor
+	var image : Image = get_viewport().get_texture().get_image()
+	image = image.get_region(Rect2(csf*(node.global_position-Vector2(6, 6)) ,csf*(node.size+Vector2(14, 12))))
+	# Make background transparent
+	image.convert(Image.FORMAT_RGBA8)
+	var border_color : Color = image.get_pixel(0, 0)
+	for y : int in image.get_height():
+		for x : int in image.get_width():
+			if image.get_pixel(x, y) != border_color:
+				break
+			image.set_pixel(x, y, Color(0, 0, 0, 0))
+		for x : int in range(image.get_width()-1, 0, -1):
+			if image.get_pixel(x, y) != border_color:
+				break
+			image.set_pixel(x, y, Color(0, 0, 0, 0))
+	@warning_ignore("narrowing_conversion")
+	image.resize(image.get_size().x/csf, image.get_size().y/csf, Image.INTERPOLATE_LANCZOS)
+	image.save_png(save_path)
+
+func generate_material_screenshots(graph_edit : MMGraphEdit) -> int:
+	# generate sceenshots for material nodes
+	var material_node : MMGraphNodeGeneric = graph_edit.get_node("node_Material")
+	for i in mm_loader.get_material_nodes().size():
+		await get_tree().create_timer(0.05).timeout
+		material_node._on_menu_id_pressed(i)
+		print(material_node.generator.model)
+		generate_transparent_node_sceenshot(material_node,
+			"res://material_maker/doc/images/node_%s.png" % [material_node.generator.model])
+	return mm_loader.get_material_nodes().size()
 
 # Should be moved to library manager
-func generate_screenshots(graph_edit : GraphEdit, parent_item : TreeItem = null) -> int:
+func generate_node_screenshots(graph_edit : GraphEdit, parent_item : TreeItem = null) -> int:
 	var count : int = 0
 	if parent_item == null:
 		parent_item = tree.get_root()
@@ -229,29 +256,15 @@ func generate_screenshots(graph_edit : GraphEdit, parent_item : TreeItem = null)
 		if item.get_metadata(0) != null:
 			var new_nodes = graph_edit.create_nodes(item.get_metadata(0))
 			await get_tree().create_timer(0.05).timeout
-			var image = get_viewport().get_texture().get_image()
-			var csf = mm_globals.main_window.get_window().content_scale_factor
-			image = image.get_region(Rect2(csf*(new_nodes[0].global_position-Vector2(6, 6)),csf*(new_nodes[0].size+Vector2(14, 12))))
-			# Make background transparent
-			image.convert(Image.FORMAT_RGBA8)
-			var border_color : Color = image.get_pixel(0, 0)
-			for y : int in image.get_height():
-				for x : int in image.get_width():
-					if image.get_pixel(x, y) != border_color:
-						break
-					image.set_pixel(x, y, Color(0, 0, 0, 0))
-				for x : int in range(image.get_width()-1, 0, -1):
-					if image.get_pixel(x, y) != border_color:
-						break
-					image.set_pixel(x, y, Color(0, 0, 0, 0))
+			generate_transparent_node_sceenshot(new_nodes[0],
+					"res://material_maker/doc/images/node_%s.png" % [get_icon_name(get_item_path(item))])
 			print(get_icon_name(get_item_path(item)))
-			image.resize(image.get_size().x/csf, image.get_size().y/csf, Image.INTERPOLATE_LANCZOS)
-			image.save_png("res://material_maker/doc/images/node_"+get_icon_name(get_item_path(item))+".png")
 			for n in new_nodes:
 				graph_edit.remove_node(n)
 			count += 1
-		var result = await generate_screenshots(graph_edit, item)
+		var result = await generate_node_screenshots(graph_edit, item)
 		count += result
+	
 	if parent_item == null:
 		graph_edit.remove_theme_stylebox_override("panel")
 	return count
@@ -404,7 +417,7 @@ func _on_PopupMenu_index_pressed(index):
 	match index:
 		0: # Rename
 			var dialog = preload("res://material_maker/windows/line_dialog/line_dialog.tscn").instantiate()
-			dialog.content_scale_factor = mm_globals.main_window.get_window().content_scale_factor
+			dialog.content_scale_factor = mm_globals.ui_scale_factor()
 			dialog.min_size = Vector2(250, 90) * dialog.content_scale_factor
 			add_child(dialog)
 			var status = await dialog.enter_text("Rename item", "Enter the new name for this item", item_path)
@@ -424,7 +437,7 @@ func _on_PopupMenu_index_pressed(index):
 		5: # Define aliases
 			var aliases = library_manager.get_aliases(item_path)
 			var dialog = preload("res://material_maker/windows/line_dialog/line_dialog.tscn").instantiate()
-			dialog.content_scale_factor = mm_globals.main_window.get_window().content_scale_factor
+			dialog.content_scale_factor = mm_globals.ui_scale_factor()
 			dialog.min_size = Vector2(400, 90) * dialog.content_scale_factor
 			add_child(dialog)
 			var status = await dialog.enter_text("Library item aliases", "Updated aliases for "+item_path, aliases)

@@ -31,36 +31,86 @@ const CONTRIBUTORS = [
 	{ name="paddy-exe", contribution="New modes in the Blend node", url="https://github.com/RodZill4/material-maker/commits/master/?author=paddy-exe" },
 	{ name="Variable", contribution="UI fixes", url="https://github.com/RodZill4/material-maker/commits/master/?author=Variable-ind" },
 	{ name="jeremybeier", contribution="Unity export fixes", url="https://github.com/RodZill4/material-maker/commits/master/?author=jeremybeier" },
+	{ name="Caroline Tilly", contribution="Steam trailer production and music for all showreels", url="https://tilcamusic.com/" },
+	{ name="Margot Rindone", contribution="Steam achievements icons", url="https://www.artstation.com/margot_rindone" },
 	{ name="Maybe you?", contribution="If I forgot anyone here, or if you wish to contribute to this project, please don't hesitate to join our Discord channel and/or contact me directly", url="https://discord.gg/PF5V3mFwFM" },
 ]
 
 const PATRONS = [
-	"Ian Genskowsky Chang", "Hugo Locurcio", "Jose Ivan Lopez Romo",
-	"rustweaver", "Thomas Schmall", "ww123td", "Twerknificent",
-	"Cam Kilgore", "Florian Bruehl", "fisj", "Botan dragneel",
-	"Gerard Laan", "Mark", "OhWow", "doomy"
+	"Ian Genskowsky Chang",
+	"Calinou",
+	"Jose Ivan Lopez Romo",
+	"rustweaver",
+	"Thomas Schmall",
+	"ww123td",
+	"Twerknificent",
+	"Florian Bruehl",
+	"fisj",
+	"3ookeeper",
+	"Botan dragneel",
+	"Gerard Laan",
+	"FKM",
+	"doomy",
+	"ArthurTheEagle"
 ]
 
 const PATRONS2 = [
-	"Andres Hernandez", "Valerian Bedin", "BasicIncomePlz", "AdamRatai",
-	"Robert Dodd", "Edward Herbert", "Ryan Roden-Corrent", "LitmusZest",
-	"Interstice ", "Harken", "Valerio Marty", "Vlad Erium", "MrDG",
-	"Ap", "Trevor", "Mikael Nordenberg", "Montey", "Miouyouyou ",
-	"Preclude Interactive", "思羽 陳", "3ookeeper", "Schrottkatze",
-	"nargacu83", "Nick", "celestialmaze", "Andreas Ratchev", "Micha Grandel",
-	"realkotob", "Mischa", "Deniz Ãœndan", "Yumemocchi", "Shikher Pandey",
-	"The5", "Zee Gomez", "Richard Nespithal", "Giuseppe Modarelli",
-	"Microplastics Farmer", "Some Critter", "Green Bean", "Shanxxx Official",
-	"Leon Krykhtin", "Lusia Shinra", "Tom Wor", "TATboy"
+	"Andres Hernandez",
+	"Valerian Bedin",
+	"AdamRatai",
+	"Robert Dodd",
+	"Edward Herbert",
+	"Ryan Roden-Corrent",
+	"LitmusZest",
+	"Interstice ",
+	"Harken",
+	"Valerio Marty",
+	"Mad Processor",
+	"Cam Kilgore",
+	"MrDG",
+	"Ap",
+	"Trevor",
+	"Mikael Nordenberg",
+	"Montey",
+	"Miouyouyou ",
+	"Preclude Interactive",
+	"思羽陳",
+	"Schrottkatze",
+	"nargacu83",
+	"Nick",
+	"Andreas Ratchev",
+	"Micha Grandel",
+	"realkotob",
+	"Mischa",
+	"Deniz Ãndan",
+	"Yumemocchi",
+	"Shikher Pandey",
+	"Mark",
+	"The5",
+	"Zee Gomez",
+	"Richard Nespithal",
+	"Giuseppe Modarelli",
+	"Microplastics Farmer",
+	"A critter in flux",
+	"Green Bean",
+	"Shanxxx Official",
+	"Leon Krykhtin",
+	"Lusia Shinra",
+	"Tom Wor",
+	"TATboy"
 ]
 
 func _ready() -> void:
-	content_scale_factor = mm_globals.main_window.get_window().content_scale_factor
+	content_scale_factor = mm_globals.ui_scale_factor()
 	min_size = Vector2(600, 500) * content_scale_factor
 	if Engine.is_editor_hint():
 		application_name_label.text = "Material Maker"
 	else:
 		application_name_label.text = ProjectSettings.get_setting("application/config/name")+" v"+ProjectSettings.get_setting("application/config/actual_release")
+	
+	if mm_steam.steam_api == null:
+		$HBoxContainer/MarginContainer/SocialNetworks/ItchIo.visible = true
+		$HBoxContainer/MarginContainer/SocialNetworks/Patreon.visible = true
 	
 	# Contributors list
 	var label : Label
