@@ -111,10 +111,6 @@ float intersects_bvh(vec3 ray_start, vec3 ray_dir, out vec3 normal_hit) {
 					vec3 tri_a = get_data(j).xyz;
 					vec3 tri_b = get_data(j + 1).xyz;
 					vec3 tri_c = get_data(j + 2).xyz;
-					//TEST
-					//
-					return 0.0;
-					// /TEST
 					float tri_t = intersects_triangle(ray_start, ray_dir,
 						tri_a, tri_b, tri_c
 					);

@@ -763,6 +763,15 @@ func _allocate_mm_output(ctx:Dictionary)->BVHStatus:
 	var side := ceili(sqrt(float(total_texels)))
 	ctx[KEY_SIDE] = side
 	var image := Image.create(side,side,false,Image.FORMAT_RGBAF)
+	print(
+	"node_count=", node_count,
+	" node_data_start=", ctx[KEY_NODE_DATA_START],
+	" node_data_texels=", node_data_texels,
+	" total_texels=", total_texels,
+	" side=", side,
+	" capacity=", side * side,
+	" spare=", side * side - total_texels
+)
 	ctx[KEY_BVH_IMAGE] = image
 	ctx[KEY_BVH_IMAGE_TEXTURE] = ImageTexture.create_from_image(image)
 
