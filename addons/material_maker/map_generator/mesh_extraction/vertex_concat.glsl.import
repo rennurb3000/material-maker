@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://b21a76o0x5c3r"
+path="res://.godot/imported/vertex_concat.glsl-30c9bcbcd6a7e059091d35fe4414b7fd.res"
+
+[deps]
+
+source_file="res://addons/material_maker/map_generator/mesh_extraction/vertex_concat.glsl"
+dest_files=["res://.godot/imported/vertex_concat.glsl-30c9bcbcd6a7e059091d35fe4414b7fd.res"]
+
+[params]
+
