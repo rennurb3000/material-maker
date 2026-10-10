@@ -166,13 +166,14 @@ static func generate(mesh : Mesh, map : String, size : int, texture : MMTexture)
 				normalize_pipeline.in_thread_render_ext([texture], Vector2i(size, size))
 			
 			# Denoise
-			if false:
+			if true:
 				print.call_deferred("Denoising...")
 				var denoise_pipeline : MMComputeShader = MMComputeShader.new()
 				denoise_pipeline.clear()
 				denoise_pipeline.add_parameter_or_texture("tex", "sampler2D", texture)
 				denoise_pipeline.add_parameter_or_texture("radius", "int", 3)
-				denoise_pipeline.set_shader(load("res://addons/material_maker/map_generator/denoise_compute.tres").text, 3)
+				var shader_ok := denoise_pipeline.set_shader(load("res://addons/material_maker/map_generator/denoise_compute.tres").text, 3)
+				print("Denoise shader valid: ", shader_ok)
 				denoise_pipeline.in_thread_render_ext([texture], Vector2i(size, size))
 
 	# Extend the map past seams

@@ -21,7 +21,10 @@ const KEY_NODE_LEVEL_BUFFER := "node_level_buffer"
 const KEY_PACKED_BVH_BUFFER:= "packed_bvh_buffer"
 const KEY_NODE_WRITEOUT_BUFFER:= "node_writeout_buffer"
 const KEY_NODE_DATA_START := "node_data_start"
-const KEY_SIDE := "side"
+#const KEY_SIDE := "side" non square texture, matching cpu mm
+const KEY_WIDTH := "width"
+const KEY_HEIGHT := "height"
+const MAX_TEXTURE_WIDTH := 16384
 const LBVH_NODE_SIZE := 36
 const ELEMENT_SIZE := 28
 const LBVH_CONSTRUCTION_INFO_SIZE := 8 # uint +int
@@ -740,7 +743,7 @@ func _writeout_mm_bvh(ctx:Dictionary)->BVHStatus:
 	push_constants.resize(12)
 	push_constants.encode_u32(0,total_nodes)
 	push_constants.encode_u32(4, node_data_start)
-	push_constants.encode_u32(8, ctx[KEY_SIDE])
+	push_constants.encode_u32(8, ctx[KEY_WIDTH])
 	
 	var compute_list := _rd.compute_list_begin()
 	_rd.compute_list_bind_compute_pipeline(compute_list,_writeout_pipeline)
@@ -760,25 +763,31 @@ func _allocate_mm_output(ctx:Dictionary)->BVHStatus:
 	var node_count := primitive_count * 2 - 1
 	ctx[KEY_NODE_DATA_START] = MM_HEADER_TEXELS+  node_count
 	var total_texels = ctx[KEY_NODE_DATA_START] + node_data_texels
-	var side := ceili(sqrt(float(total_texels)))
-	ctx[KEY_SIDE] = side
-	var image := Image.create(side,side,false,Image.FORMAT_RGBAF)
+
+	var width := mini(total_texels, MAX_TEXTURE_WIDTH)
+	var height := ceili(float(total_texels) / float(width))
+
+	ctx[KEY_WIDTH] = width
+	ctx[KEY_HEIGHT] = height
+
 	print(
-	"node_count=", node_count,
-	" node_data_start=", ctx[KEY_NODE_DATA_START],
-	" node_data_texels=", node_data_texels,
-	" total_texels=", total_texels,
-	" side=", side,
-	" capacity=", side * side,
-	" spare=", side * side - total_texels
-)
-	ctx[KEY_BVH_IMAGE] = image
-	ctx[KEY_BVH_IMAGE_TEXTURE] = ImageTexture.create_from_image(image)
+		"node_count=", node_count,
+		" node_data_start=", ctx[KEY_NODE_DATA_START],
+		" node_data_texels=", node_data_texels,
+		" total_texels=", total_texels,
+		" width=", width,
+		" height=", height,
+		" capacity=", width * height,
+		" spare=", width * height - total_texels
+	)
+	
+	#ctx[KEY_BVH_IMAGE] = image
+	#ctx[KEY_BVH_IMAGE_TEXTURE] = ImageTexture.create_from_image(image)
 
 	# R,G,B,A * 4Byte = 16
 	var format := RDTextureFormat.new()
-	format.width = ctx[KEY_SIDE]
-	format.height = ctx[KEY_SIDE] 
+	format.width = width
+	format.height = height 
 	format.texture_type = RenderingDevice.TEXTURE_TYPE_2D
 	format.format = RenderingDevice.DATA_FORMAT_R32G32B32A32_SFLOAT
 	format.usage_bits = (RenderingDevice.TEXTURE_USAGE_STORAGE_BIT |
@@ -889,18 +898,18 @@ func _generate(mesh:Mesh)->ImageTexture:
 	if status != BVHStatus.OK:
 		_cleanup(ctx)
 		return null
-	var texture : ImageTexture = ctx[KEY_BVH_IMAGE_TEXTURE]
+	#var texture : ImageTexture = ctx[KEY_BVH_IMAGE_TEXTURE]
 	#_cleanup(ctx)
 	print("total : %d usec",Time.get_ticks_usec()-total_start_time)
 	
-	print("textures..")
-	print(ctx[KEY_BVH_IMAGE])
-	print(ctx[KEY_BVH_IMAGE_TEXTURE])
-	print(texture)
+	#print("textures..")
+	#print(ctx[KEY_BVH_IMAGE])
+	#print(ctx[KEY_BVH_IMAGE_TEXTURE])
+	#print(texture)
 	var bytes: PackedByteArray = _rd.texture_get_data(ctx[KEY_BVH_IMAGE], 0)
 	var image := Image.create_from_data(
-		ctx[KEY_SIDE],
-		ctx[KEY_SIDE],
+		ctx[KEY_WIDTH],
+		ctx[KEY_HEIGHT],
 		false,
 		Image.FORMAT_RGBAF,
 		bytes
@@ -914,7 +923,6 @@ func _generate(mesh:Mesh)->ImageTexture:
 	#image.save_png("user://gpu_debug.png")
 
 	return ImageTexture.create_from_image(image)
-	return texture
 	
 static func generate(mesh: Mesh,add_vertex_info : bool = false,rendering_device:RenderingDevice=null) -> ImageTexture:
 	var generator := get_instance(rendering_device)

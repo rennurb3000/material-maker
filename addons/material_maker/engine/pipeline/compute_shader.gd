@@ -127,7 +127,9 @@ func render_loop(rd : RenderingDevice, size : Vector2i, chunk_height : int, unif
 		var rids : RIDs = RIDs.new()
 		
 		# Create a compute pipeline
+		print("1: creating pipeline")
 		var pipeline : RID = rd.compute_pipeline_create(shader)
+		print("2: pipeline valid: ", pipeline.is_valid())
 		if ! pipeline.is_valid():
 			print("Cannot create pipeline")
 		rids.add(pipeline)
@@ -152,12 +154,16 @@ func render_loop(rd : RenderingDevice, size : Vector2i, chunk_height : int, unif
 			rd.compute_list_bind_uniform_set(compute_list, uniform_set_4, 4)
 		
 		#print("Dispatching compute list")
+		print("3: dispatch")
 		rd.compute_list_dispatch(compute_list, (size.x+local_size-1)/local_size, h, 1)
+		print("4: dispatch completed")
 		rd.compute_list_end()
+		print("5: compute list ended")
 		#print("Rendering "+str(self))
 		rd.submit()
+		print("6: submitted")
 		rd.sync()
-		
+		print("7: synchronized")
 		rids.free_rids(rd)
 		
 		#print("End rendering %d-%d (%dms)" % [ y, y+h, render_time ])
@@ -275,8 +281,9 @@ func do_render(rd : RenderingDevice, output_textures_rids : Array[RID], size : V
 	var chunk_count : int = max(1, size.x*size.y/(max_viewport_size*max_viewport_size))
 	var chunk_height : int = max(1, size.y/chunk_count)
 	
+	print("Denoise: before render_loop")
 	render_loop(rd, size, chunk_height, uniform_set_0, uniform_set_1, uniform_set_2, uniform_set_4)
-	
+	print("Denoise: after render_loop")
 	if has_output_parameters:
 		for pn in output_parameters.keys():
 			output_parameters_values.erase(pn)

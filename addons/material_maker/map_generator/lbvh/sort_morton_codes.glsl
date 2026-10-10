@@ -20,7 +20,6 @@
 //*/
 //
 #define INVALID_POINTER 0x0
-
 // input for the builder (normally a triangle or some other kind of primitive); it is necessary to allocate and fill the buffer
 struct Element {
     uint primitiveIdx;// the id of the primitive; this primitive id is copied to the leaf nodes of the  LBVHNode
@@ -61,7 +60,7 @@ struct LBVHConstructionInfo {
 #define WORKGROUP_SIZE 256// assert WORKGROUP_SIZE >= RADIX_SORT_BINS
 #define RADIX_SORT_BINS 256
 // #define SUBGROUP_SIZE 32// 32 NVIDIA; 64 AMD
-#define SUBGROUP_SIZE 64
+//#define SUBGROUP_SIZE 64
 #define BITS 32// sorting uint32_t
 #define ITERATIONS 4// 4 iterations, sorting 8 bits per iteration
 
@@ -80,7 +79,7 @@ layout (std430, set = 1, binding = 1) buffer elements_out {
 };
 
 shared uint[RADIX_SORT_BINS] histogram;
-shared uint[RADIX_SORT_BINS / SUBGROUP_SIZE] sums;// subgroup reductions
+shared uint[RADIX_SORT_BINS / 32] sums;// subgroup reductions // note: changed that to 32-> so it fits amd and nvidia
 shared uint[RADIX_SORT_BINS] local_offsets;// local exclusive scan (prefix sum) (inside subgroups)
 shared uint[RADIX_SORT_BINS] global_offsets;// global exclusive scan (prefix sum)
 
@@ -130,9 +129,9 @@ void main() {
         // global prefix sums (offsets)
         if (sID == 0) {
             uint offset = 0;
-            for (uint i = lsID; i < RADIX_SORT_BINS; i += SUBGROUP_SIZE) {
+            for (uint i = lsID; i < RADIX_SORT_BINS; i += gl_SubgroupSize) {
                 global_offsets[i] = offset + local_offsets[i];
-                offset += sums[i / SUBGROUP_SIZE];
+                offset += sums[i / gl_SubgroupSize];
             }
         }
         barrier();
