@@ -37,6 +37,10 @@ static func deserialize_value(data):
 				var lattice = MMLattice.new()
 				lattice.deserialize(data)
 				return lattice
+			elif data.type == "BvhData":
+				var bvh = MMBvhData.new()
+				bvh.deserialize(data)
+				return bvh
 		elif data.has("r") and data.has("g") and data.has("b") and data.has("a"):
 			return Color(data.r, data.g, data.b, data.a)
 	# in previous releases, Gradients were serialized as arrays

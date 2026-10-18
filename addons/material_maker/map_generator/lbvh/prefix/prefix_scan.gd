@@ -26,6 +26,8 @@ func exclusive_scan_u32(input_buffer:RID, element_count:int)->RID:
 	if block_count > 1:
 		var scanned_block_sums := exclusive_scan_u32(block_sum_buffer,block_count)
 		_dispatch_add_block_offsets(output_buffer,scanned_block_sums,element_count)
+		_rd.free_rid(scanned_block_sums)
+	_rd.free_rid(block_sum_buffer)
 	return output_buffer
 	
 # note we need the pipeline recursively!
@@ -115,3 +117,13 @@ func _dispatch_add_block_offsets(output_buffer:RID,
 	_rd.compute_list_end()
 	_rd.submit()
 	_rd.sync()
+
+func cleanup() ->void:
+	for rid in [
+		_scan_pipeline,
+		_add_block_offset_pipeline,
+		_scan_shader,
+		_add_block_offset_shader
+	]:
+		if rid.is_valid():
+			_rd.free_rid(rid)

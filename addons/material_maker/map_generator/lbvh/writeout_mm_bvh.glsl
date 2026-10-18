@@ -13,7 +13,10 @@ struct LBVHNode {
     float aabbMaxY;
     float aabbMaxZ;
 };
-
+struct MortonCodeElement {
+    uint mortonCode;
+    uint elementIdx;
+};
 layout(local_size_x = 256) in;
 layout(set = 0,binding = 0,std430) readonly buffer LBVHBuffer
 {
@@ -38,11 +41,15 @@ layout(set = 0,binding = 4,std430) readonly buffer Indices
 
 layout(rgba32f,set = 0, binding =5) uniform writeonly image2D output_image;
 layout(push_constant,std430) uniform PushConstants{
-  uint node_count;  
-  uint node_data_start;  
-  uint texture_width;
+	uint node_count;  
+	uint node_data_start;  
+	uint texture_width;
+	uint triangle_count;
+	uint leaf_size;
 };
-
+layout(set = 0, binding = 6, std430) readonly buffer SortedTriangles {
+    MortonCodeElement sorted_triangles[];
+};
 ivec2 texel_coord(uint idx)
 {
     return ivec2(
@@ -80,24 +87,38 @@ void main()
     //        texel1 : xyz = max_aabb, w, triangle_count for leaves, otherwise zero 
     write_texel(output_offset+0u, vec4(aabb_min,float(node_levels[node_idx])));
     write_texel(output_offset+1u,vec4(aabb_max,is_leaf?1.0:0.0));
-    if (is_leaf)
-    {
-        uint tri = node.primitiveIdx;
-        uint index_offset = tri *3u;
-        uint vertex_id_0 = indices[index_offset+0];
-        uint vertex_id_1 = indices[index_offset+1];
-        uint vertex_id_2 = indices[index_offset+2];
-        vec3 vertex_0 = vertices[vertex_id_0];
-        vec3 vertex_1 = vertices[vertex_id_1];
-        vec3 vertex_2 = vertices[vertex_id_2];
-        write_texel(output_offset +2u, vec4(vertex_0,0.0));
-        write_texel(output_offset +3u, vec4(vertex_1,0.0));
-        write_texel(output_offset +4u, vec4(vertex_2,0.0));
-    }
-    else
-    {
-        // non leaf node
-        write_texel(output_offset +2u, vec4(float(node.left),float(node.right),0.0,0.0));
-    }
+	if (is_leaf)
+	{
+		uint first = node.primitiveIdx;
+		uint count = min(leaf_size, triangle_count - first);
+
+		// texel1.w contains the number of triangles
+		write_texel(output_offset + 1u, vec4(aabb_max, float(count)));
+
+		for (uint i = 0u; i < count; ++i)
+		{
+		    uint tri = sorted_triangles[first + i].elementIdx;
+		    uint index_offset = tri * 3u;
+
+		    uint vertex_id_0 = indices[index_offset + 0u];
+		    uint vertex_id_1 = indices[index_offset + 1u];
+		    uint vertex_id_2 = indices[index_offset + 2u];
+
+		    vec3 vertex_0 = vertices[vertex_id_0];
+		    vec3 vertex_1 = vertices[vertex_id_1];
+		    vec3 vertex_2 = vertices[vertex_id_2];
+
+		    uint dst = output_offset + 2u + i * 3u;
+
+		    write_texel(dst + 0u, vec4(vertex_0, 0.0));
+		    write_texel(dst + 1u, vec4(vertex_1, 0.0));
+		    write_texel(dst + 2u, vec4(vertex_2, 0.0));
+		}
+	}
+	else
+	{
+		write_texel(output_offset + 2u,
+		    vec4(float(node.left), float(node.right), 0.0, 0.0));
+	}
     
 }

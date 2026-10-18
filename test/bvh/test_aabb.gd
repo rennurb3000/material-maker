@@ -104,8 +104,9 @@ func test_build_hierarchy():
 	print("execution_time %f" %(Time.get_ticks_usec()-start_time))
 	assert_eq(status,MMBvhGeneratorGPU.BVHStatus.OK)
 	var node_data := rd.buffer_get_data(ctx[MMBvhGeneratorGPU.KEY_LBVH_BUFFER])
-	var tri_count : int = ctx[MMBvhGeneratorGPU.KEY_INDICES].size()/3
-	var node_count : int = tri_count *2 -1
+	var tri_count: int = ctx[MMBvhGeneratorGPU.KEY_INDICES].size() / 3
+	var cluster_count: int = ctx[MMBvhGeneratorGPU.KEY_CLUSTER_COUNT]
+	var node_count := cluster_count * 2 - 1
 	var construction_data := rd.buffer_get_data(ctx[MMBvhGeneratorGPU.KEY_LBVH_CONSTRUCTION_INFO_BUFFER])
 	var construction = MMBvhGeneratorGPU.read_lbvh_construction_infos(construction_data)
 	#var root := _read_node(node_data,0)
@@ -113,7 +114,7 @@ func test_build_hierarchy():
 	assert_eq(nodes.size(),node_count)
 	assert_eq(construction.size(),node_count)
 
-	assert_true(MMBvhGeneratorGPU.validate_hierarchy(nodes,construction,tri_count),"hierarchy failed")
+	assert_true(MMBvhGeneratorGPU.validate_hierarchy(nodes,construction,cluster_count),"hierarchy failed")
 	
 	var visited := {}
 	MMBvhGeneratorGPU.traverse_lbvh_cpu(nodes,0,
@@ -121,13 +122,33 @@ func test_build_hierarchy():
 		assert_false(visited.has(idx), "cycle detected at node %d")
 		visited[idx]=true
 		if (node.left == 0) and(node.right == 0):
-			assert_true(node.primitive>=0, "primitive id is not valid %d" %node.primitive)
-			assert_true(node.primitive<tri_count, "primitive id is not valid %d" %node.primitive)
-			var expected := MMBvhGeneratorGPU.calculate_triangle_aabb_cpu(
-				ctx[MMBvhGeneratorGPU.KEY_VERTICES],
-				ctx[MMBvhGeneratorGPU.KEY_INDICES],
-				node.primitive
+			var first := node.primitive
+			var count := mini(MMBvhGeneratorGPU.LEAF_SIZE, tri_count - first)
+			assert_true(
+				first >= 0 and first < tri_count,
+				"Invalid leaf primitive offset: %d" % first
 			)
+			assert_eq(first % MMBvhGeneratorGPU.LEAF_SIZE, 0)
+			if first < 0 or first >= tri_count:
+				return
+			var sorted_morton := rd.buffer_get_data(
+				ctx[MMBvhGeneratorGPU.KEY_MORTON_BUFFER]
+			)
+			assert_eq(sorted_morton.size(), tri_count * 8)
+			var expected : AABB
+			
+			for i in count:
+				var triangle_id := sorted_morton.decode_u32((first + i) * 8 + 4)
+				var triangle_aabb := MMBvhGeneratorGPU.calculate_triangle_aabb_cpu(
+					ctx[MMBvhGeneratorGPU.KEY_VERTICES],
+					ctx[MMBvhGeneratorGPU.KEY_INDICES],
+					triangle_id
+				)
+				if i == 0:
+					expected = triangle_aabb
+				else:
+					expected = expected.merge(triangle_aabb)
+			
 			# leaf aabbs correct?
 			assert_almost_eq(node.aabb.position.x, expected.position.x, EPSILON)
 			assert_almost_eq(node.aabb.position.y, expected.position.y, EPSILON)
@@ -153,6 +174,98 @@ func test_build_hierarchy():
 			assert_almost_eq(node.aabb.end.z, merged.end.z, EPSILON)
 		)
 	assert_eq(visited.size() ,nodes.size(), "not all nodes were reached")
+		
+		
+		
+func test_leaf_clusters() -> void:
+	var ctx := {}
+	var mesh := load("res://material_maker/meshes/suzanne.obj") as ArrayMesh
+	assert_not_null(mesh)
+	var rd := RenderingServer.create_local_rendering_device()
+	var status := MMBvhGeneratorGPU.generate_leaf_clusters_test(
+		mesh, rd, ctx
+	)
+	assert_eq(status, MMBvhGeneratorGPU.BVHStatus.OK)
+
+	var leaf_size := MMBvhGeneratorGPU.LEAF_SIZE
+	var triangle_count: int = ctx[MMBvhGeneratorGPU.KEY_INDICES].size() / 3
+	var cluster_count: int = ctx[MMBvhGeneratorGPU.KEY_CLUSTER_COUNT]
+
+	assert_eq(cluster_count, ceili(float(triangle_count) / leaf_size))
+
+	var sorted_morton := rd.buffer_get_data(
+		ctx[MMBvhGeneratorGPU.KEY_MORTON_BUFFER]
+	)
+	var cluster_elements := rd.buffer_get_data(
+		ctx[MMBvhGeneratorGPU.KEY_CLUSTER_ELEMENT_BUFFER]
+	)
+	var cluster_morton := rd.buffer_get_data(
+		ctx[MMBvhGeneratorGPU.KEY_CLUSTER_MORTON_BUFFER]
+	)
+
+	var vertices: PackedVector3Array = ctx[MMBvhGeneratorGPU.KEY_VERTICES]
+	var indices: PackedInt32Array = ctx[MMBvhGeneratorGPU.KEY_INDICES]
+	var scene_aabb: AABB = ctx[MMBvhGeneratorGPU.KEY_SCENE_AABB]
+
+	for cluster_id in cluster_count:
+		var first := cluster_id * leaf_size
+		var count := mini(leaf_size, triangle_count - first)
+
+		var expected_aabb: AABB
+
+		for i in count:
+			var sorted_idx := first + i
+			var triangle_id := sorted_morton.decode_u32(sorted_idx * 8 + 4)
+
+			var triangle_aabb := MMBvhGeneratorGPU.calculate_triangle_aabb_cpu(
+				vertices, indices, triangle_id
+			)
+
+			if i == 0:
+				expected_aabb = triangle_aabb
+			else:
+				expected_aabb = expected_aabb.merge(triangle_aabb)
+
+		# Element layout: primitiveIdx + 6 floats = 28 bytes
+		var offset := cluster_id * MMBvhGeneratorGPU.ELEMENT_SIZE
+
+		var primitive_offset := cluster_elements.decode_u32(offset)
+		var actual_min := Vector3(
+			cluster_elements.decode_float(offset + 4),
+			cluster_elements.decode_float(offset + 8),
+			cluster_elements.decode_float(offset + 12)
+		)
+		var actual_max := Vector3(
+			cluster_elements.decode_float(offset + 16),
+			cluster_elements.decode_float(offset + 20),
+			cluster_elements.decode_float(offset + 24)
+		)
+
+		assert_eq(primitive_offset, first)
+
+		assert_almost_eq(actual_min.x, expected_aabb.position.x, 0.0001)
+		assert_almost_eq(actual_min.y, expected_aabb.position.y, 0.0001)
+		assert_almost_eq(actual_min.z, expected_aabb.position.z, 0.0001)
+
+		assert_almost_eq(actual_max.x, expected_aabb.end.x, 0.0001)
+		assert_almost_eq(actual_max.y, expected_aabb.end.y, 0.0001)
+		assert_almost_eq(actual_max.z, expected_aabb.end.z, 0.0001)
+
+		# Morton code of the merged cluster AABB
+		var expected_morton := MMBvhGeneratorGPU.calculate_morton_code_cpu(
+			expected_aabb, scene_aabb
+		)
+
+		var morton_offset := cluster_id * MMBvhGeneratorGPU.MORTON_ELEMENT_SIZE
+
+		assert_eq(
+			cluster_morton.decode_u32(morton_offset),
+			expected_morton
+		)
+		assert_eq(
+			cluster_morton.decode_u32(morton_offset + 4),
+			cluster_id
+		)
 		
 func test_mm_bvh_create():
 	var mesh := load("res://material_maker/meshes/suzanne.obj") as ArrayMesh

@@ -25,16 +25,24 @@ layout(set = 0,binding = 1,std430) writeonly buffer NodeSizes
     uint node_sizes[];
 };
 layout(push_constant,std430) uniform PushConstants{
-  uint node_count;  
+	uint node_count;  
+	uint triangle_count;
+    uint leaf_size;
 };
 
 void main(){
     uint node_idx = gl_GlobalInvocationID.x;
-    if(node_idx >= node_count)
-    {
+    if (node_idx >= node_count) {
         return;
     }
+
     LBVHNode node = nodes[node_idx];
     bool is_leaf = node.left == INVALID_POINTER && node.right == INVALID_POINTER;
-    node_sizes[node_idx] = is_leaf?LEAF_SIZE:3u;
+
+    if (is_leaf) {
+        uint count = min(leaf_size, triangle_count - node.primitiveIdx);
+        node_sizes[node_idx] = 2u + count * 3u;
+    } else {
+        node_sizes[node_idx] = 3u;
+    }
 }

@@ -63,11 +63,12 @@ custom_minimum_size = Vector2(289, 172)
 layout_mode = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
-current_tab = 0
+current_tab = 1
 tabs_visible = false
 use_hidden_tabs_for_min_size = true
 
 [node name="General" type="ScrollContainer" parent="HSplitContainer/PreferencesPanel/VBoxContainer/TabContainer" unique_id=1762930560]
+visible = false
 layout_mode = 2
 theme_type_variation = &"MM_PreferenceTab"
 metadata/_tab_index = 0
@@ -374,7 +375,6 @@ custom_minimum_size = Vector2(0, 10)
 layout_mode = 2
 
 [node name="Bake" type="ScrollContainer" parent="HSplitContainer/PreferencesPanel/VBoxContainer/TabContainer" unique_id=660237356]
-visible = false
 layout_mode = 2
 theme_type_variation = &"MM_PreferenceTab"
 metadata/_tab_index = 1
@@ -453,6 +453,19 @@ min_value = 1.0
 max_value = 10.0
 step = 1.0
 float_only = true
+
+[node name="GpuBvh" type="HBoxContainer" parent="HSplitContainer/PreferencesPanel/VBoxContainer/TabContainer/Bake/VBoxContainer" unique_id=1297568785]
+layout_mode = 2
+
+[node name="LabelGpuBVH" type="Label" parent="HSplitContainer/PreferencesPanel/VBoxContainer/TabContainer/Bake/VBoxContainer/GpuBvh" unique_id=898073871]
+layout_mode = 2
+text = "Use GPU BVH (LBVH)"
+
+[node name="BooleanOption" parent="HSplitContainer/PreferencesPanel/VBoxContainer/TabContainer/Bake/VBoxContainer/GpuBvh" unique_id=63623854 instance=ExtResource("1")]
+layout_mode = 2
+size_flags_horizontal = 10
+text = "LBVH"
+config_variable = "bake_use_lbvh"
 
 [node name="Graph" type="ScrollContainer" parent="HSplitContainer/PreferencesPanel/VBoxContainer/TabContainer" unique_id=66755518]
 visible = false

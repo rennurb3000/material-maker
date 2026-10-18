@@ -136,9 +136,13 @@ static func generate(mesh : Mesh, map : String, size : int, texture : MMTexture)
 			mesh_pipeline.in_thread_render(Vector2i(size, size), 3, texture)
 		"bvh":
 			mesh_pipeline.mesh = mesh
+			var use_lbvh = mm_globals.get_config("bake_use_lbvh")
 			var bvh : MMTexture = MMTexture.new()
-			#bvh.set_texture(MMBvhGenerator.generate(mesh))
-			bvh.set_texture(MMBvhGeneratorGPU.generate(mesh,false,mm_renderer.rendering_device))
+			if use_lbvh:
+				bvh.set_texture(MMBvhGeneratorGPU.generate(mesh,false,mm_renderer.rendering_device))
+			else:
+				bvh.set_texture(MMBvhGenerator.generate(mesh))
+				
 			var ray_count = mm_globals.get_config("bake_ray_count")
 			var ao_ray_dist = -mesh.get_aabb().size.length() if map == "thickness" else mm_globals.get_config("bake_ao_ray_dist")
 			var ao_ray_bias = mm_globals.get_config("bake_ao_ray_bias")

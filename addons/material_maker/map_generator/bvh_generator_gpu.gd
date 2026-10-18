@@ -33,6 +33,19 @@ const KEY_BVH_IMAGE_RID := "bvh_image_rid"
 const MM_HEADER_TEXELS := 1
 const MM_NODE_TEXELS := 3 #TODO replace in shader
 const MM_LEAF_TEXELS := 5 #TODO selectable , for normal mode, or bake mode
+
+const LEAF_SIZE := 6 
+const MORTON_ELEMENT_SIZE := 8
+
+const KEY_CLUSTER_COUNT := "cluster_count"
+const KEY_CLUSTER_ELEMENT_BUFFER := "cluster_element_buffer"
+const KEY_CLUSTER_MORTON_BUFFER := "cluster_morton_buffer"
+const KEY_CLUSTER_MORTON_BUFFER_TMP := "cluster_morton_buffer_tmp"
+
+# TODO refactor constants to common constants! (for mesh extractor)
+const KEY_VERTEX_COUNT := "vertex_count"
+const KEY_INDEX_COUNT := "index_count"
+
 #TODO extend for better debugability
 enum BVHStatus{
 	OK,
@@ -80,6 +93,9 @@ var _writeout_pipeline :RID
 var _node_levels_shader : RID
 var _node_levels_pipeline :RID
 
+var _leaf_cluster_shader: RID
+var _leaf_cluster_pipeline: RID
+
 # used to calculate storage positions 
 var _prefix_scan : PrefixScan
 # simple singleton pattern, so we can easily provide a static bvh interface like before
@@ -100,6 +116,7 @@ func _init(rendering_device:RenderingDevice) -> void:
 	_init_triangle_aabb_pipeline()
 	_init_morton_pipeline()
 	_init_radix_pipeline()
+	_init_leaf_cluster_pipeline()
 	_init_hierarchy_pipeline()
 	_init_bb_pipeline()
 	_init_node_size_pipeline()
@@ -131,6 +148,14 @@ func _init_radix_pipeline():
 	var shader_spirv : RDShaderSPIRV = shader_file.get_spirv()
 	_radix_shader = _rd.shader_create_from_spirv(shader_spirv)
 	_radix_pipeline = _rd.compute_pipeline_create(_radix_shader)
+	
+func _init_leaf_cluster_pipeline():
+	if _leaf_cluster_pipeline.is_valid():
+		return
+	var shader_file := load("res://addons/material_maker/map_generator/lbvh/leaf_cluster.glsl")
+	var shader_spirv : RDShaderSPIRV = shader_file.get_spirv()
+	_leaf_cluster_shader = _rd.shader_create_from_spirv(shader_spirv)
+	_leaf_cluster_pipeline = _rd.compute_pipeline_create(_leaf_cluster_shader)
 	
 func _init_hierarchy_pipeline():
 	if _hierarchy_pipeline.is_valid():
@@ -214,6 +239,8 @@ static func _extract_mesh(mesh:Mesh)-> Dictionary:
 		
 	ctx[KEY_VERTICES] = vertices
 	ctx[KEY_INDICES] = indices
+	ctx[KEY_VERTEX_COUNT] = vertices.size()
+	ctx[KEY_INDEX_COUNT] = indices.size()
 	ctx[KEY_SURFACE_IDS] = surface_ids
 	ctx[KEY_SCENE_AABB] = mesh.get_aabb() # TODO measure performance reduce shader otherwise
 	return ctx
@@ -239,7 +266,7 @@ func _create_buffers(ctx:Dictionary)-> BVHStatus:
 	for i in indices.size():
 		index_bytes.encode_u32(i*4,indices[i])
 	ctx[KEY_INDEX_BUFFER] = _rd.storage_buffer_create(index_bytes.size(),index_bytes)
-	var tri_count : int = ctx[KEY_INDICES].size()/3
+	var tri_count : int = ctx[KEY_INDEX_COUNT]/3
 	ctx[KEY_ELEMENT_BUFFER] = _rd.storage_buffer_create(tri_count*ELEMENT_SIZE) # aabb min + aabb max + id = 12+12+4 
 	return BVHStatus.OK
 	
@@ -269,7 +296,7 @@ func _generate_element_aabbs(ctx:Dictionary)->BVHStatus:
 	uniforms.push_back(element_uniform)
 	
 	var uniform_set := _rd.uniform_set_create(uniforms,_triangle_aabb_shader,0)
-	var tri_count : int = ctx[KEY_INDICES].size()/3
+	var tri_count : int = ctx[KEY_INDEX_COUNT]/3
 	var push_constants := PackedByteArray()
 	push_constants.resize(4)
 	push_constants.encode_u32(0,tri_count)
@@ -314,7 +341,7 @@ func _generate_morton_codes(ctx:Dictionary)->BVHStatus:
 	var uniforms : Array[RDUniform] = []
 	if not _morton_pipeline.is_valid():
 		return BVHStatus.PIPELINE_CREATE_FAILED
-	var primitive_count : int =  ctx[KEY_INDICES].size()/3
+	var primitive_count : int =  ctx[KEY_INDEX_COUNT]/3
 	ctx[KEY_MORTON_BUFFER] = _rd.storage_buffer_create(primitive_count*8) # uint morton + uint primitive idx
 	
 	var morton_uniform := RDUniform.new()
@@ -390,24 +417,89 @@ static func calculate_morton_code_cpu(aabb:AABB,scene_aabb:AABB)->int:
 	var mapped := (center-scene_aabb.position)/scene_aabb.size
 	return _morton3d(mapped.x,mapped.y,mapped.z)
 
-func _sort_morton_codes(ctx:Dictionary) -> BVHStatus:
+func _generate_leaf_clusters(ctx:Dictionary)->BVHStatus:
+	if not _leaf_cluster_pipeline.is_valid():
+		return BVHStatus.PIPELINE_CREATE_FAILED
+	var triangle_count : int = ctx[KEY_INDEX_COUNT]/3
+	var cluster_count :int = ceili(float(triangle_count)/float(LEAF_SIZE))
+	ctx[KEY_CLUSTER_COUNT] = cluster_count
+	ctx[KEY_CLUSTER_ELEMENT_BUFFER] = _rd.storage_buffer_create(cluster_count*ELEMENT_SIZE)
+	ctx[KEY_CLUSTER_MORTON_BUFFER] = _rd.storage_buffer_create(cluster_count*MORTON_ELEMENT_SIZE)
+	
+	var uniforms : Array[RDUniform] = []
+	for buffer in[
+		ctx[KEY_ELEMENT_BUFFER],
+		ctx[KEY_MORTON_BUFFER],
+		ctx[KEY_CLUSTER_ELEMENT_BUFFER],
+		ctx[KEY_CLUSTER_MORTON_BUFFER],
+	]:
+		var uniform := RDUniform.new()
+		uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+		uniform.binding = uniforms.size()
+		uniform.add_id(buffer)
+		uniforms.append(uniform)
+	var uniform_set := _rd.uniform_set_create(uniforms,_leaf_cluster_shader,0)
+	var aabb : AABB = ctx[KEY_SCENE_AABB]
+	var push_constants := PackedByteArray()
+	push_constants.resize(32)
+	push_constants.encode_u32(0, triangle_count)
+	push_constants.encode_u32(4,LEAF_SIZE)
+	push_constants.encode_float(8,aabb.position.x)
+	push_constants.encode_float(12,aabb.position.y)
+	push_constants.encode_float(16,aabb.position.z)
+	push_constants.encode_float(20,aabb.end.x)
+	push_constants.encode_float(24,aabb.end.y)
+	push_constants.encode_float(28,aabb.end.z)
+	
+	var compute_list := _rd.compute_list_begin()
+	_rd.compute_list_bind_compute_pipeline(compute_list,_leaf_cluster_pipeline)
+	_rd.compute_list_bind_uniform_set(compute_list,uniform_set,0)
+	_rd.compute_list_set_push_constant(compute_list,push_constants,push_constants.size())
+	_rd.compute_list_dispatch(compute_list,ceili(float(cluster_count)/256.0),1,1)
+	_rd.compute_list_end()
+	_rd.submit()
+	_rd.sync()
+	return BVHStatus.OK
+
+static func generate_leaf_clusters_test(
+	mesh:Mesh,
+	rendering_device: RenderingDevice,
+	ctx:Dictionary
+)-> BVHStatus:
+	assert(ctx.is_empty())
+	var generator := MMBvhGeneratorGPU.get_instance(rendering_device)
+	ctx.merge(generator._extract_mesh(mesh),true)
+	var status := generator._create_buffers(ctx)
+	if status != BVHStatus.OK:
+		return status
+	status = generator._generate_element_aabbs(ctx)
+	if status != BVHStatus.OK:
+		return status
+	status = generator._generate_morton_codes(ctx)
+	if status != BVHStatus.OK:
+		return status
+	status = generator._sort_morton_codes(ctx)
+	return generator._generate_leaf_clusters(ctx)
+
+func _sort_morton_codes(
+	ctx:Dictionary,
+	morton_key: String = KEY_MORTON_BUFFER,
+	temp_key: String = KEY_MORTON_BUFFER_TMP,
+	num_elements: int = -1
+	) -> BVHStatus:
 	if not _radix_pipeline.is_valid():
 		return BVHStatus.PIPELINE_CREATE_FAILED
+	if num_elements <0:
+		num_elements = ctx[KEY_INDEX_COUNT]/3
+	ctx[temp_key] = _rd.storage_buffer_create(num_elements*MORTON_ELEMENT_SIZE)
 	var uniforms : Array[RDUniform] = []
-	var num_elements :int =  ctx[KEY_INDICES].size() / 3
 	
-	ctx[KEY_MORTON_BUFFER_TMP] = _rd.storage_buffer_create(num_elements*8)
-	var morton_in_uniform := RDUniform.new()
-	morton_in_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	morton_in_uniform.binding = 0
-	morton_in_uniform.add_id(ctx[KEY_MORTON_BUFFER])
-	uniforms.push_back(morton_in_uniform)
-	
-	var morton_out_uniform := RDUniform.new()
-	morton_out_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	morton_out_uniform.binding = 1
-	morton_out_uniform.add_id(ctx[KEY_MORTON_BUFFER_TMP])
-	uniforms.push_back(morton_out_uniform)
+	for buffer in[ctx[morton_key],ctx[temp_key]]:
+		var uniform := RDUniform.new()
+		uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+		uniform.binding = uniforms.size()
+		uniform.add_id(buffer)
+		uniforms.append(uniform)
 	
 	var uniform_set := _rd.uniform_set_create(uniforms,_radix_shader,1)
 	var push_constants := PackedByteArray()
@@ -461,7 +553,7 @@ func _build_hierarchy(ctx:Dictionary)->BVHStatus:
 		return BVHStatus.PIPELINE_CREATE_FAILED
 	var uniforms : Array[RDUniform] = []
 	
-	var num_elements : int = ctx[KEY_INDICES].size()/3
+	var num_elements : int = ctx[KEY_CLUSTER_COUNT]
 	var total_nodes := num_elements * 2-1
 	
 	ctx[KEY_LBVH_BUFFER] = _rd.storage_buffer_create(
@@ -474,13 +566,13 @@ func _build_hierarchy(ctx:Dictionary)->BVHStatus:
 	var morton_uniform := RDUniform.new()
 	morton_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
 	morton_uniform.binding = 0
-	morton_uniform.add_id(ctx[KEY_MORTON_BUFFER])
+	morton_uniform.add_id(ctx[KEY_CLUSTER_MORTON_BUFFER])
 	uniforms.push_back(morton_uniform)
 	
 	var elements_uniform := RDUniform.new()
 	elements_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
 	elements_uniform.binding = 1
-	elements_uniform.add_id(ctx[KEY_ELEMENT_BUFFER])
+	elements_uniform.add_id(ctx[KEY_CLUSTER_ELEMENT_BUFFER])
 	uniforms.push_back(elements_uniform)
 	
 	# output bvh!
@@ -517,8 +609,7 @@ func _build_hierarchy(ctx:Dictionary)->BVHStatus:
 func _build_bounding_boxes(ctx:Dictionary)->BVHStatus:
 
 	var uniforms : Array[RDUniform] = []
-	var num_elements : int = ctx[KEY_INDICES].size()/3
-	
+	var num_elements: int = ctx[KEY_CLUSTER_COUNT]	
 	var lbvh_uniform := RDUniform.new()
 	lbvh_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
 	lbvh_uniform.binding = 0
@@ -567,6 +658,17 @@ static func generate_hierarchy_test(mesh:Mesh,
 	status = generator._sort_morton_codes(ctx)
 	if status != BVHStatus.OK:
 		return status
+	status = generator._generate_leaf_clusters(ctx)
+	if status != BVHStatus.OK:
+		return status
+	status = generator._sort_morton_codes(
+		ctx,
+		KEY_CLUSTER_MORTON_BUFFER,
+		KEY_CLUSTER_MORTON_BUFFER_TMP,
+		ctx[KEY_CLUSTER_COUNT]
+	)
+	if status != BVHStatus.OK:
+		return status
 	status = generator._build_hierarchy(ctx)
 	if status != BVHStatus.OK:
 		return status
@@ -574,7 +676,7 @@ static func generate_hierarchy_test(mesh:Mesh,
 	if status != BVHStatus.OK:
 		return status
 	
-	var num_elements : int = ctx[KEY_INDICES].size() / 3
+	var num_elements : int = ctx[KEY_CLUSTER_COUNT]
 	var leaf_offset := num_elements - 1
 	var lbvh_bytes : PackedByteArray = rendering_device.buffer_get_data(ctx[KEY_LBVH_BUFFER])
 	print("==============Leaf check ==========")
@@ -607,7 +709,7 @@ func _calculate_node_sizes(ctx)->BVHStatus:
 	if not _node_sizes_pipeline.is_valid():
 		return BVHStatus.PIPELINE_CREATE_FAILED
 	var uniforms : Array[RDUniform] = []
-	var num_elements : int = ctx[KEY_INDICES].size()/3
+	var num_elements : int = ctx[KEY_CLUSTER_COUNT]
 	var node_count := num_elements*2-1
 	ctx[KEY_NODE_SIZE_BUFFER] = _rd.storage_buffer_create(node_count*4)
 	
@@ -629,8 +731,10 @@ func _calculate_node_sizes(ctx)->BVHStatus:
 		0
 	)
 	var push_constants := PackedByteArray()
-	push_constants.resize(4)
+	push_constants.resize(12)
 	push_constants.encode_u32(0,node_count)
+	push_constants.encode_u32(4, ctx[KEY_INDEX_COUNT]/3)
+	push_constants.encode_u32(8, LEAF_SIZE)
 	
 	var compute_list := _rd.compute_list_begin()
 	_rd.compute_list_bind_compute_pipeline(compute_list,_node_sizes_pipeline)
@@ -645,7 +749,7 @@ func _calculate_node_sizes(ctx)->BVHStatus:
 func _calculate_node_levels(ctx:Dictionary)->BVHStatus:
 	if not _node_levels_pipeline.is_valid():
 		return BVHStatus.PIPELINE_CREATE_FAILED
-	var num_elements : int = ctx[KEY_INDICES].size()/3
+	var num_elements : int = ctx[KEY_CLUSTER_COUNT]
 	var total_nodes := num_elements * 2-1
 	ctx[KEY_NODE_LEVEL_BUFFER] = _rd.storage_buffer_create(total_nodes*4)
 	var uniforms : Array[RDUniform] = []
@@ -682,7 +786,7 @@ func _calculate_node_levels(ctx:Dictionary)->BVHStatus:
 	
 	
 func _scan_node_sizes(ctx:Dictionary)->BVHStatus:
-	var tri_count : int = ctx[KEY_INDICES].size()/3
+	var tri_count : int = ctx[KEY_CLUSTER_COUNT]
 	var node_count := tri_count*2-1
 	ctx[KEY_NODE_OFFSET_BUFFER] = _prefix_scan.exclusive_scan_u32(ctx[KEY_NODE_SIZE_BUFFER],node_count)
 	if not ctx[KEY_NODE_OFFSET_BUFFER].is_valid():
@@ -692,7 +796,7 @@ func _scan_node_sizes(ctx:Dictionary)->BVHStatus:
 func _writeout_mm_bvh(ctx:Dictionary)->BVHStatus:
 	if not _writeout_pipeline.is_valid():
 		return BVHStatus.PIPELINE_CREATE_FAILED
-	var num_elements : int = ctx[KEY_INDICES].size()/3
+	var num_elements : int = ctx[KEY_CLUSTER_COUNT]
 	var total_nodes := num_elements * 2-1
 	var node_data_start : int = ctx[KEY_NODE_DATA_START]
 	var uniforms : Array[RDUniform] = []
@@ -733,17 +837,25 @@ func _writeout_mm_bvh(ctx:Dictionary)->BVHStatus:
 	output_uniform.binding = 5
 	output_uniform.add_id(ctx[KEY_BVH_IMAGE])
 	uniforms.push_back(output_uniform)
-
+	
+	var sorted_uniform := RDUniform.new()
+	sorted_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
+	sorted_uniform.binding = 6
+	sorted_uniform.add_id(ctx[KEY_MORTON_BUFFER])
+	uniforms.push_back(sorted_uniform)
+	
 	var uniform_set := _rd.uniform_set_create(
 		uniforms,
 		_writeout_shader,
 		0
 	)
 	var push_constants := PackedByteArray()
-	push_constants.resize(12)
+	push_constants.resize(20)
 	push_constants.encode_u32(0,total_nodes)
 	push_constants.encode_u32(4, node_data_start)
 	push_constants.encode_u32(8, ctx[KEY_WIDTH])
+	push_constants.encode_u32(12, ctx[KEY_INDEX_COUNT]/3 / 3)
+	push_constants.encode_u32(16, LEAF_SIZE)
 	
 	var compute_list := _rd.compute_list_begin()
 	_rd.compute_list_bind_compute_pipeline(compute_list,_writeout_pipeline)
@@ -759,7 +871,7 @@ func _allocate_mm_output(ctx:Dictionary)->BVHStatus:
 	var size_data : PackedByteArray = _rd.buffer_get_data(ctx[KEY_NODE_SIZE_BUFFER])
 	var offset_data : PackedByteArray = _rd.buffer_get_data(ctx[KEY_NODE_OFFSET_BUFFER])
 	var node_data_texels := get_total_node_texels(size_data,offset_data)
-	var primitive_count: int = ctx[KEY_INDICES].size() / 3
+	var primitive_count: int = ctx[KEY_CLUSTER_COUNT]
 	var node_count := primitive_count * 2 - 1
 	ctx[KEY_NODE_DATA_START] = MM_HEADER_TEXELS+  node_count
 	var total_texels = ctx[KEY_NODE_DATA_START] + node_data_texels
@@ -814,14 +926,32 @@ func _generate_lbvh(ctx:Dictionary)-> BVHStatus:
 	print("stage 3: sort mortoncodes : %d usec" % (Time.get_ticks_usec()-start_time))
 	if status != BVHStatus.OK:
 		return status
+		
+	start_time = Time.get_ticks_usec()
+	status = _generate_leaf_clusters(ctx)
+	print("cluster leaves: %d usec" % (Time.get_ticks_usec() - start_time))
+	if status != BVHStatus.OK:
+		return status
+
+	start_time = Time.get_ticks_usec()
+	status = _sort_morton_codes(
+		ctx,
+	KEY_CLUSTER_MORTON_BUFFER,
+	KEY_CLUSTER_MORTON_BUFFER_TMP,
+	ctx[KEY_CLUSTER_COUNT]
+	)
+	print("stage 4: sort clusters: %d usec" % (Time.get_ticks_usec() - start_time))
+	if status != BVHStatus.OK:
+		return status
+		
 	start_time = Time.get_ticks_usec()
 	status = _build_hierarchy(ctx)
-	print("stage 4: build hierarchy: %d usec" %(Time.get_ticks_usec()-start_time))
+	print("stage 5: build hierarchy: %d usec" %(Time.get_ticks_usec()-start_time))
 	if status != BVHStatus.OK:
 		return status
 	start_time = Time.get_ticks_usec()
 	status = _build_bounding_boxes(ctx)
-	print("stage 5: build bounding boxes: %d usec"%(Time.get_ticks_usec()-start_time))
+	print("stage 6: build bounding boxes: %d usec"%(Time.get_ticks_usec()-start_time))
 	if status != BVHStatus.OK:
 		return status
 	return BVHStatus.OK
@@ -830,17 +960,17 @@ func _generate_lbvh(ctx:Dictionary)-> BVHStatus:
 func _generate_mm_bvh(ctx:Dictionary)->BVHStatus:
 	var start_time : int = Time.get_ticks_usec()
 	var status := _calculate_node_levels(ctx)
-	print("stage 6: node_level_calculation : %d usec"%(Time.get_ticks_usec()-start_time))
-	if status != BVHStatus.OK:
-		return status
-	start_time = Time.get_ticks_usec()
-	status = _calculate_node_sizes(ctx)
 	print("stage 7: node_level_calculation : %d usec"%(Time.get_ticks_usec()-start_time))
 	if status != BVHStatus.OK:
 		return status
 	start_time = Time.get_ticks_usec()
+	status = _calculate_node_sizes(ctx)
+	print("stage 8: node_level_calculation : %d usec"%(Time.get_ticks_usec()-start_time))
+	if status != BVHStatus.OK:
+		return status
+	start_time = Time.get_ticks_usec()
 	status = _scan_node_sizes(ctx)
-	print("stage 8: storage offset_generation : %d usec"%(Time.get_ticks_usec()-start_time))
+	print("stage 9: storage offset_generation : %d usec"%(Time.get_ticks_usec()-start_time))
 	if status != BVHStatus.OK:
 		return status
 	status = _allocate_mm_output(ctx)
@@ -848,7 +978,7 @@ func _generate_mm_bvh(ctx:Dictionary)->BVHStatus:
 		return status
 	start_time = Time.get_ticks_usec()
 	status = _writeout_mm_bvh(ctx)
-	print("stage 9: writeout : %d usec"%(Time.get_ticks_usec()-start_time))
+	print("stage 10: writeout : %d usec"%(Time.get_ticks_usec()-start_time))
 	if status != BVHStatus.OK:
 		return status
 	return BVHStatus.OK
@@ -868,6 +998,9 @@ func _cleanup(ctx:Dictionary)-> void:
 		KEY_NODE_LEVEL_BUFFER,
 		KEY_PACKED_BVH_BUFFER, 
 		KEY_NODE_WRITEOUT_BUFFER,
+		KEY_CLUSTER_ELEMENT_BUFFER,
+		KEY_CLUSTER_MORTON_BUFFER,
+		KEY_CLUSTER_MORTON_BUFFER_TMP,
 		KEY_BVH_IMAGE
 	]
 	for key in to_free:
@@ -875,7 +1008,35 @@ func _cleanup(ctx:Dictionary)-> void:
 			var rid : RID = ctx[key]
 			if rid.is_valid():
 				_rd.free_rid(rid)
-
+func cleanup()->void:
+	for rid in [
+		_triangle_aabb_pipeline,
+		_morton_pipeline,
+		_radix_pipeline,
+		_hierarchy_pipeline,
+		_bb_node_pipeline,
+		_node_sizes_pipeline,
+		_writeout_pipeline,
+		_node_levels_pipeline,
+		_leaf_cluster_pipeline
+	]:
+		if rid.is_valid():
+			_rd.free_rid(rid)
+	for rid in [
+		_triangle_aabb_shader,
+		_morton_shader,
+		_radix_shader,
+		_hierarchy_shader,
+		_bb_node_shader,
+		_node_sizes_shader,
+		_writeout_shader,
+		_node_levels_shader,
+		_leaf_cluster_shader
+	]:
+		if rid.is_valid():
+			_rd.free_rid(rid)
+	_prefix_scan.cleanup()
+			
 func _generate(mesh:Mesh)->ImageTexture:
 	var total_start_time : int= Time.get_ticks_usec()
 	var ctx := _extract_mesh(mesh)
@@ -927,6 +1088,20 @@ func _generate(mesh:Mesh)->ImageTexture:
 static func generate(mesh: Mesh,add_vertex_info : bool = false,rendering_device:RenderingDevice=null) -> ImageTexture:
 	var generator := get_instance(rendering_device)
 	return generator._generate(mesh)
+
+func _create_buffers_from_extraction(ctx:Dictionary,extracted:Dictionary)->BVHStatus:
+		var vertex_count : int = extracted[KEY_VERTEX_COUNT]
+		var index_count : int = extracted[KEY_INDEX_COUNT]
+		
+		if vertex_count == 0 or index_count == 0 or index_count %3!=0:
+			return BVHStatus.INVALID_MESH
+		ctx[KEY_VERTEX_BUFFER] = extracted[KEY_VERTICES]
+		ctx[KEY_INDEX_BUFFER] = extracted[KEY_INDICES]
+		ctx[KEY_SCENE_AABB] = extracted[KEY_SCENE_AABB]
+		ctx[KEY_VERTEX_COUNT] = vertex_count
+		ctx[KEY_INDEX_COUNT] = index_count
+		ctx[KEY_ELEMENT_BUFFER] = _rd.storage_buffer_create((index_count/3)*ELEMENT_SIZE)
+		return BVHStatus.OK
 
 static func read_lbvh_node(data:PackedByteArray,node_idx:int)->LBVHNode:
 	var offset := node_idx * LBVH_NODE_SIZE

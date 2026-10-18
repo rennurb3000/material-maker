@@ -1,0 +1,14 @@
+[remap]
+
+importer="glsl"
+type="RDShaderFile"
+uid="uid://ds13wl0ggl4p5"
+path="res://.godot/imported/leaf_cluster.glsl-bdf80e9145871b381df3be38e792bbe7.res"
+
+[deps]
+
+source_file="res://addons/material_maker/map_generator/lbvh/leaf_cluster.glsl"
+dest_files=["res://.godot/imported/leaf_cluster.glsl-bdf80e9145871b381df3be38e792bbe7.res"]
+
+[params]
+
