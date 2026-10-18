@@ -26,3 +26,17 @@ build/
 .godot/
 *.orig
 *.rej
+
+#TODO remove me, used for lbvh dev
+cpu_test.png
+gpu_test.png
+material_maker/meshes/chalice_hipoly.mtl
+material_maker/meshes/chalice_hipoly.obj
+material_maker/meshes/chalice_hipoly.obj.import
+material_maker/meshes/simple_multisurface_vcolor.bin
+material_maker/meshes/simple_multisurface_vcolor.glb
+material_maker/meshes/simple_multisurface_vcolor.glb.import
+material_maker/meshes/simple_multisurface_vcolor.gltf
+material_maker/meshes/simple_multisurface_vcolor.gltf.import
+test_bvhcpu.dot
+test_bvhgpu.dot
