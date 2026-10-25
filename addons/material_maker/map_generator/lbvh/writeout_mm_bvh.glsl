@@ -46,6 +46,7 @@ layout(push_constant,std430) uniform PushConstants{
 	uint texture_width;
 	uint triangle_count;
 	uint leaf_size;
+	uint add_vertex_info;
 };
 layout(set = 0, binding = 6, std430) readonly buffer SortedTriangles {
     MortonCodeElement sorted_triangles[];
@@ -108,11 +109,16 @@ void main()
 		    vec3 vertex_1 = vertices[vertex_id_1];
 		    vec3 vertex_2 = vertices[vertex_id_2];
 
-		    uint dst = output_offset + 2u + i * 3u;
+			uint stride = add_vertex_info != 0u ? 4u:3u;
+		    uint dst = output_offset + 2u + i * stride;
 
 		    write_texel(dst + 0u, vec4(vertex_0, 0.0));
 		    write_texel(dst + 1u, vec4(vertex_1, 0.0));
 		    write_texel(dst + 2u, vec4(vertex_2, 0.0));
+		    if(add_vertex_info != 0u)
+		    {
+		    	write_texel(dst+3u,vec4(float(vertex_id_0),float(vertex_id_1),float(vertex_id_2),float(tri)));
+		    }
 		}
 	}
 	else

@@ -2,7 +2,9 @@ extends RefCounted
 class_name MMBvhData
 
 var mesh_path: String
-var bvh: MMTexture
+var bvh:
+	get:
+		return MMMeshManager.get_instance().get_bvh(mesh_path)
 var attributes : Dictionary = {}
 
 func serialize()->Dictionary:

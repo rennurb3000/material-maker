@@ -395,6 +395,8 @@ func set_current_mesh_in_meshmap_nodes(m : Mesh, n : MMGenGraph = self):
 			set_current_mesh_in_meshmap_nodes(m, c)
 		elif c is MMGenMeshMap:
 			c.set_current_mesh(m)
+		elif c is MMGenMeshLoader:
+			c.on_graph_mesh_changed()
 
 #endregion
 

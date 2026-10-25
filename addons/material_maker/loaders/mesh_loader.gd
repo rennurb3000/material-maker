@@ -60,8 +60,16 @@ static func load_mesh(path : String) -> ArrayMesh:
 	var ext : String = path.get_extension()
 	var mesh : ArrayMesh = null
 	if ext.matchn("obj"):
-		var obj_loader = load("res://addons/material_maker/loaders/obj_loader.gd")
-		mesh = obj_loader.load_obj_file(path)
+		#region
+		if mm_globals.get_config("use_gpu_mesh_extraction"):
+			print("gpu mesh extraction!")
+			# TODO better settings!
+			mesh = load(path)
+
+		#endregion
+		if mesh == null:
+			var obj_loader = load("res://addons/material_maker/loaders/obj_loader.gd")
+			mesh = obj_loader.load_obj_file(path)
 	elif ext.matchn("glb") or ext.matchn("gltf"):
 		mesh = load_gltf_mesh(path)
 	elif ext.matchn("fbx"):

@@ -44,7 +44,7 @@ layout(set = 0,binding =11 ,rgba32f) uniform writeonly image2D tangent_lut;
 layout(set = 0,binding =12 ,rgba32f) uniform writeonly image2D color_lut;
 layout(set = 0,binding =13 ,rgba32f) uniform writeonly image2D uv_lut;
 layout(set = 0,binding =14 ,rgba32f) uniform writeonly image2D uv2_lut;
-layout(set = 0,binding =15 ,r32ui  ) uniform writeonly uimage2D surface_id_lut;
+layout(set = 0,binding =15 ,rgba32f) uniform writeonly image2D surface_id_lut;
 layout(set = 0,binding = 16, std430) writeonly buffer OutputSurfaceIds
 { 
 	uint output_surface_ids[];
@@ -113,7 +113,7 @@ void main() {
         imageStore(color_lut, coord, color);
         imageStore(uv_lut, coord, vec4(uv, 0.0, 0.0));
         imageStore(uv2_lut, coord, vec4(uv2, 0.0, 0.0));
-        imageStore(surface_id_lut, coord, uvec4(pc.surface_id, 0u, 0u, 0u));
+        imageStore(surface_id_lut, coord, vec4(float(pc.surface_id), 0.0, 0.0, 0.0));
     }
 
     if (i < pc.index_count) {

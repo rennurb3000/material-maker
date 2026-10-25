@@ -82,7 +82,8 @@ func test_extract_gpu():
 
 func test_exctract_gpu_lbvh():
 	var t_start = Time.get_ticks_usec()
-	var mesh := load("res://material_maker/meshes/simple_multisurface_vcolor.obj") as ArrayMesh
+	#var mesh := load("res://material_maker/meshes/simple_multisurface_vcolor.obj") as ArrayMesh
+	var mesh := load("res://material_maker/meshes/chalice_hipoly.obj") as ArrayMesh
 	assert_not_null(mesh)
 	var rd := RenderingServer.create_local_rendering_device()
 	var extractor := MMMeshExtractor.new(rd)
@@ -90,6 +91,7 @@ func test_exctract_gpu_lbvh():
 	var extracted := extractor.extract_gpu(mesh)
 	assert_gt(extracted[MMMeshExtractor.KEY_VERTEX_COUNT],0)
 	assert_gt(extracted[MMMeshExtractor.KEY_INDEX_COUNT],0)
+	print("extracted %d indices" %extracted[MMMeshExtractor.KEY_INDEX_COUNT])
 	var ctx = {}
 	var status := generator._create_buffers_from_extraction(ctx,extracted)
 	assert_eq(status,MMBvhGeneratorGPU.BVHStatus.OK)

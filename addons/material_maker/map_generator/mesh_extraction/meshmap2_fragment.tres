@@ -1,0 +1,56 @@
+[gd_resource type="Resource" script_class="TextResource" format=3 uid="uid://cjlwjy8serb61"]
+
+[ext_resource type="Script" uid="uid://bc3eljtuurjsd" path="res://addons/material_maker/engine/text_resource.gd" id="1_ijq31"]
+
+[resource]
+script = ExtResource("1_ijq31")
+text = "#version 450
+
+layout(location = 0) in vec3 v_position;
+layout(location = 1) in vec3 v_normal;
+layout(location = 2) in vec4 v_tangent;
+layout(location = 3) in vec4 v_color;
+layout(location = 4) in vec2 v_uv;
+layout(location = 5) in vec2 v_uv2;
+layout(location = 6) flat in float v_surface_id;
+
+layout(location = 0) out vec4 outColor;
+
+@DECLARATIONS
+
+void main() {
+	if (selected_surface >= 0 && int(round(v_surface_id)) != selected_surface) 
+	{
+    		discard;
+	}
+
+    switch (map_mode) {
+        case 0: // position
+            outColor = vec4(v_position, 1.0);
+            break;
+        case 1: // normal
+            outColor = vec4(v_normal, 1.0);
+            break;
+        case 2: // tangent
+            outColor = v_tangent;
+            break;
+        case 3: // color
+            outColor = vec4(v_color.rgb,1.0);
+            break;
+        case 4: // uv
+            outColor = vec4(v_uv, 0.0, 1.0);
+            break;
+        case 5: // uv2
+            outColor = vec4(v_uv2, 0.0, 1.0);
+            break;
+        case 6: // surface id
+            outColor = vec4(v_surface_id, 0.0, 0.0, 1.0);
+            break;
+        case 7: // uv mask
+            outColor = vec4(1.0, 0.0, 0.0, 1.0);
+            break;
+        default:
+            outColor = vec4(1.0, 0.0, 1.0, 1.0);
+            break;
+    }
+}"

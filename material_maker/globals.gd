@@ -53,6 +53,7 @@ const DEFAULT_CONFIG : Dictionary = {
 	bake_ao_ray_bias = 0.005,
 	bake_denoise_radius = 3,
 	bake_use_lbvh = true,
+	use_gpu_mesh_extraction = true,
 	auto_size_comment = true,
 	graph_line_curvature = 0.5,
 	graph_line_style = 1,

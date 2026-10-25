@@ -1,0 +1,39 @@
+[gd_resource type="Resource" script_class="TextResource" format=3 uid="uid://bjlvnqu3wjr0m"]
+
+[ext_resource type="Script" uid="uid://bc3eljtuurjsd" path="res://addons/material_maker/engine/text_resource.gd" id="1_oqegj"]
+
+[resource]
+script = ExtResource("1_oqegj")
+text = "#version 450
+
+layout(location = 0) out vec3 v_position;
+layout(location = 1) out vec3 v_normal;
+layout(location = 2) out vec4 v_tangent;
+layout(location = 3) out vec4 v_color;
+layout(location = 4) out vec2 v_uv;
+layout(location = 5) out vec2 v_uv2;
+layout(location = 6) flat out float v_surface_id;
+
+@DECLARATIONS
+
+ivec2 lut_coord(uint vid, ivec2 size) {
+    return ivec2(int(vid % uint(size.x)), int(vid / uint(size.x)));
+}
+
+
+void main() {
+    uint global_vid = uint(gl_VertexIndex);
+
+    ivec2 uv_size = textureSize(uv_lut, 0);
+    ivec2 coord = lut_coord(global_vid, uv_size);
+
+    v_position   = texelFetch(position_lut,   coord, 0).xyz;
+    v_normal     = texelFetch(normal_lut,     coord, 0).xyz;
+    v_tangent    = texelFetch(tangent_lut,    coord, 0);
+    v_color      = texelFetch(color_lut,      coord, 0);
+    v_uv         = texelFetch(uv_lut,         coord, 0).xy;
+    v_uv2        = texelFetch(uv2_lut,        coord, 0).xy;
+    v_surface_id = texelFetch(surface_id_lut, coord, 0).r;
+
+    gl_Position = vec4(v_uv * 2.0 - vec2(1.0), 0.0, 1.0);
+}"

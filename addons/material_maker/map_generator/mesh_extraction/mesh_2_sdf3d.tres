@@ -1,0 +1,329 @@
+[gd_resource type="Resource" script_class="TextResource" format=3 uid="uid://ci5ohjgjnx2r4"]
+
+[ext_resource type="Script" uid="uid://bc3eljtuurjsd" path="res://addons/material_maker/engine/text_resource.gd" id="1_ijq31"]
+
+[resource]
+script = ExtResource("1_ijq31")
+text = "
+const float MM_BIG = 1e20;
+const int MM_STACK_SIZE = 128;
+const int MM_LEAF_TRI_STRIDE = 4;
+const int MM_MAX_ITERATIONS = 512;
+
+// ------------------------------------------------------------
+// BVH data access
+// ------------------------------------------------------------
+
+vec4 mm_get_bvh_data(int index) {
+    ivec2 size = textureSize(bvh_data, 0);
+    ivec2 coord = ivec2(index % size.x, index / size.x);
+    return texelFetch(bvh_data, coord, 0);
+}
+
+int mm_node_offset(int index, int nodes_offset) {
+    return int(mm_get_bvh_data(1 + index).x) + nodes_offset;
+}
+
+// ------------------------------------------------------------
+// Point to AABB squared distance
+// ------------------------------------------------------------
+
+float mm_point_aabb_sq(vec3 p, vec3 bmin, vec3 bmax) {
+    vec3 q = clamp(p, bmin, bmax);
+    vec3 d = p - q;
+    return dot(d, d);
+}
+
+// ------------------------------------------------------------
+// Closest point on triangle
+// Christer Ericson - Real-Time Collision Detection
+// ------------------------------------------------------------
+
+vec3 mm_closest_point_triangle(vec3 p, vec3 a, vec3 b, vec3 c) {
+    vec3 ab = b - a;
+    vec3 ac = c - a;
+    vec3 ap = p - a;
+
+    float d1 = dot(ab, ap);
+    float d2 = dot(ac, ap);
+
+    if (d1 <= 0.0 && d2 <= 0.0)
+        return a;
+
+    vec3 bp = p - b;
+    float d3 = dot(ab, bp);
+    float d4 = dot(ac, bp);
+
+    if (d3 >= 0.0 && d4 <= d3)
+        return b;
+
+    float vc = d1 * d4 - d3 * d2;
+
+    if (vc <= 0.0 && d1 >= 0.0 && d3 <= 0.0) {
+        float v = d1 / (d1 - d3);
+        return a + v * ab;
+    }
+
+    vec3 cp = p - c;
+    float d5 = dot(ab, cp);
+    float d6 = dot(ac, cp);
+
+    if (d6 >= 0.0 && d5 <= d6)
+        return c;
+
+    float vb = d5 * d2 - d1 * d6;
+
+    if (vb <= 0.0 && d2 >= 0.0 && d6 <= 0.0) {
+        float w = d2 / (d2 - d6);
+        return a + w * ac;
+    }
+
+    float va = d3 * d6 - d5 * d4;
+
+    if (va <= 0.0 && (d4 - d3) >= 0.0 && (d5 - d6) >= 0.0) {
+        vec3 bc = c - b;
+        float w = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+        return b + w * bc;
+    }
+
+    float denom = 1.0 / (va + vb + vc);
+    float v = vb * denom;
+    float w = vc * denom;
+
+    return a + ab * v + ac * w;
+}
+
+// ------------------------------------------------------------
+// Ray to AABB intersection
+// Returns true when the positive ray intersects the box.
+// Ray direction must have nonzero components.
+// ------------------------------------------------------------
+
+bool mm_ray_aabb(vec3 ro, vec3 rd, vec3 bmin, vec3 bmax) {
+    vec3 t0 = (bmin - ro) / rd;
+    vec3 t1 = (bmax - ro) / rd;
+
+    vec3 near_v = min(t0, t1);
+    vec3 far_v = max(t0, t1);
+
+    float tnear = max(max(near_v.x, near_v.y), near_v.z);
+    float tfar = min(min(far_v.x, far_v.y), far_v.z);
+
+    return tfar >= max(tnear, 0.0);
+}
+
+// ------------------------------------------------------------
+// Ray to triangle intersection
+// Based on the existing Material Maker AO implementation.
+// ------------------------------------------------------------
+
+float mm_intersect_triangle(
+    vec3 ro, vec3 rd,
+    vec3 a, vec3 b, vec3 c
+) {
+    vec3 e1 = b - a;
+    vec3 e2 = c - a;
+    vec3 h = cross(rd, e2);
+
+    float det = dot(e1, h);
+
+    if (abs(det) < 1e-6)
+        return -1.0;
+
+    float inv_det = 1.0 / det;
+
+    vec3 s = ro - a;
+    float u = inv_det * dot(s, h);
+
+    if (u < 0.0 || u > 1.0)
+        return -1.0;
+
+    vec3 q = cross(s, e1);
+    float v = inv_det * dot(rd, q);
+
+    if (v < 0.0 || u + v > 1.0)
+        return -1.0;
+
+    float t = inv_det * dot(e2, q);
+
+    return t > 1e-6 ? t : -1.0;
+}
+
+// ------------------------------------------------------------
+// Find squared distance to closest triangle.
+// Returns MM_BIG if the search cannot be completed.
+// ------------------------------------------------------------
+
+float mm_mesh_distance_sq(vec3 p) {
+    int nodes_offset = int(mm_get_bvh_data(0).x);
+
+    float best_sq = MM_BIG;
+
+    int stack[MM_STACK_SIZE];
+    int sp = 0;
+
+    stack[sp++] = 0;
+
+    for (int iter = 0; iter < MM_MAX_ITERATIONS && sp > 0; ++iter) {
+        int node_idx = stack[--sp];
+        int off = mm_node_offset(node_idx, nodes_offset);
+
+        vec4 node0 = mm_get_bvh_data(off);
+        vec4 node1 = mm_get_bvh_data(off + 1);
+
+        float box_sq = mm_point_aabb_sq(
+            p, node0.xyz, node1.xyz
+        );
+
+        if (box_sq > best_sq)
+            continue;
+
+        if (node1.w > 0.0) {
+            int tri_count = int(round(node1.w));
+
+            for (int i = 0; i < tri_count; ++i) {
+                int tri_off = off + 2 + i * MM_LEAF_TRI_STRIDE;
+
+                vec3 a = mm_get_bvh_data(tri_off).xyz;
+                vec3 b = mm_get_bvh_data(tri_off + 1).xyz;
+                vec3 c = mm_get_bvh_data(tri_off + 2).xyz;
+
+                vec3 closest = mm_closest_point_triangle(p, a, b, c);
+                vec3 d = p - closest;
+
+                best_sq = min(best_sq, dot(d, d));
+            }
+        } else {
+            ivec2 children = ivec2(
+                round(mm_get_bvh_data(off + 2).xy)
+            );
+
+            int left = children.x;
+            int right = children.y;
+
+            int loff = mm_node_offset(left, nodes_offset);
+            int roff = mm_node_offset(right, nodes_offset);
+
+            float dl = mm_point_aabb_sq(
+                p,
+                mm_get_bvh_data(loff).xyz,
+                mm_get_bvh_data(loff + 1).xyz
+            );
+
+            float dr = mm_point_aabb_sq(
+                p,
+                mm_get_bvh_data(roff).xyz,
+                mm_get_bvh_data(roff + 1).xyz
+            );
+
+            // Push farther child first.
+            if (sp > MM_STACK_SIZE - 2)
+                return MM_BIG;
+
+            if (dl < dr) {
+                if (dr <= best_sq)
+                    stack[sp++] = right;
+
+                if (dl <= best_sq)
+                    stack[sp++] = left;
+            } else {
+                if (dl <= best_sq)
+                    stack[sp++] = left;
+
+                if (dr <= best_sq)
+                    stack[sp++] = right;
+            }
+        }
+    }
+
+    // Iteration limit reached before completing the search.
+    if (sp > 0)
+        return MM_BIG;
+
+    return best_sq;
+}
+
+// ------------------------------------------------------------
+// Count ray intersections for inside/outside classification.
+// Returns -1 if traversal cannot be completed.
+// ------------------------------------------------------------
+
+int mm_count_ray_hits(vec3 p, vec3 rd) {
+    int nodes_offset = int(mm_get_bvh_data(0).x);
+
+    int stack[MM_STACK_SIZE];
+    int sp = 0;
+
+    stack[sp++] = 0;
+
+    int hits = 0;
+
+    for (int iter = 0; iter < MM_MAX_ITERATIONS && sp > 0; ++iter) {
+        int node_idx = stack[--sp];
+        int off = mm_node_offset(node_idx, nodes_offset);
+
+        vec4 node0 = mm_get_bvh_data(off);
+        vec4 node1 = mm_get_bvh_data(off + 1);
+
+        if (!mm_ray_aabb(p, rd, node0.xyz, node1.xyz))
+            continue;
+
+        if (node1.w > 0.0) {
+            int tri_count = int(round(node1.w));
+
+            for (int i = 0; i < tri_count; ++i) {
+                int tri_off = off + 2 + i * MM_LEAF_TRI_STRIDE;
+
+                vec3 a = mm_get_bvh_data(tri_off).xyz;
+                vec3 b = mm_get_bvh_data(tri_off + 1).xyz;
+                vec3 c = mm_get_bvh_data(tri_off + 2).xyz;
+
+                float t = mm_intersect_triangle(p, rd, a, b, c);
+
+                if (t > 0.0)
+                    hits++;
+            }
+        } else {
+            ivec2 children = ivec2(
+                round(mm_get_bvh_data(off + 2).xy)
+            );
+
+            if (sp > MM_STACK_SIZE - 2)
+                return -1;
+
+            stack[sp++] = children.y;
+            stack[sp++] = children.x;
+        }
+    }
+
+    if (sp > 0)
+        return -1;
+
+    return hits;
+}
+
+// ------------------------------------------------------------
+// Signed distance to mesh
+// ------------------------------------------------------------
+
+float mm_mesh_sdf(vec3 p) {
+    float best_sq = mm_mesh_distance_sq(p);
+
+    if (best_sq >= MM_BIG)
+        return 1e6;
+
+    float dist = sqrt(max(best_sq, 0.0));
+
+    // Avoid axis-aligned rays to reduce edge/corner degeneracies.
+    vec3 ray_dir = normalize(vec3(0.173, 0.411, 0.895));
+	//vec3 ray_dir = vec3(1.0,0.0,0.0);
+    int hits = mm_count_ray_hits(p, ray_dir);
+
+    if (hits < 0)
+        return 1e6;
+
+    bool inside = (hits % 2) == 1;
+
+    return inside ? -dist : dist;
+}
+"

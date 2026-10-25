@@ -27,7 +27,8 @@ layout(set = 0,binding = 1,std430) writeonly buffer NodeSizes
 layout(push_constant,std430) uniform PushConstants{
 	uint node_count;  
 	uint triangle_count;
-    uint leaf_size;
+	uint leaf_size;
+	uint add_vertex_info;
 };
 
 void main(){
@@ -40,8 +41,9 @@ void main(){
     bool is_leaf = node.left == INVALID_POINTER && node.right == INVALID_POINTER;
 
     if (is_leaf) {
+		uint stride = add_vertex_info != 0u ? 4u : 3u;
         uint count = min(leaf_size, triangle_count - node.primitiveIdx);
-        node_sizes[node_idx] = 2u + count * 3u;
+        node_sizes[node_idx] = 2u + count * stride;
     } else {
         node_sizes[node_idx] = 3u;
     }

@@ -467,6 +467,19 @@ size_flags_horizontal = 10
 text = "LBVH"
 config_variable = "bake_use_lbvh"
 
+[node name="GpuMeshExtract" type="HBoxContainer" parent="HSplitContainer/PreferencesPanel/VBoxContainer/TabContainer/Bake/VBoxContainer" unique_id=381617369]
+layout_mode = 2
+
+[node name="LabelGpuBVH" type="Label" parent="HSplitContainer/PreferencesPanel/VBoxContainer/TabContainer/Bake/VBoxContainer/GpuMeshExtract" unique_id=1171265121]
+layout_mode = 2
+text = "Use GPU Mesh Extraction"
+
+[node name="BooleanOption" parent="HSplitContainer/PreferencesPanel/VBoxContainer/TabContainer/Bake/VBoxContainer/GpuMeshExtract" unique_id=631612678 instance=ExtResource("1")]
+layout_mode = 2
+size_flags_horizontal = 10
+text = "GPU Extraction"
+config_variable = "use_gpu_mesh_extraction"
+
 [node name="Graph" type="ScrollContainer" parent="HSplitContainer/PreferencesPanel/VBoxContainer/TabContainer" unique_id=66755518]
 visible = false
 layout_mode = 2

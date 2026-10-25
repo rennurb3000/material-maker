@@ -55,9 +55,10 @@ func _init(rd:RenderingDevice)->void:
 	var shader_file : RDShaderFile = load("res://addons/material_maker/map_generator/mesh_extraction/vertex_concat.glsl")
 	_shader = _rd.shader_create_from_spirv(shader_file.get_spirv())
 	_pipeline = _rd.compute_pipeline_create(_shader) 
-#func extract_cpu(mesh:Mesh) ->Dictionary:
-#	pass
-	
+
+func extract_cpu(mesh:Mesh)->Dictionary:
+	var ctx = {}
+	return ctx
 func extract_gpu(mesh:Mesh)->Dictionary:
 	var ctx := {}
 	var total_vertex_count := 0
@@ -84,7 +85,7 @@ func extract_gpu(mesh:Mesh)->Dictionary:
 	ctx[KEY_COLOR_LUT] = _create_lut(lut_width,lut_height,RenderingDevice.DATA_FORMAT_R32G32B32A32_SFLOAT)
 	ctx[KEY_UV_LUT] = _create_lut(lut_width,lut_height,RenderingDevice.DATA_FORMAT_R32G32B32A32_SFLOAT)
 	ctx[KEY_UV2_LUT] = _create_lut(lut_width,lut_height,RenderingDevice.DATA_FORMAT_R32G32B32A32_SFLOAT)
-	ctx[KEY_SURFACE_ID_LUT] = _create_lut(lut_width,lut_height,RenderingDevice.DATA_FORMAT_R32_UINT)
+	ctx[KEY_SURFACE_ID_LUT] = _create_lut(lut_width,lut_height,RenderingDevice.DATA_FORMAT_R32G32B32A32_SFLOAT)
 	
 	
 	
@@ -129,7 +130,7 @@ func extract_gpu(mesh:Mesh)->Dictionary:
 			continue
 		var indices = arrays[Mesh.ARRAY_INDEX]
 		var vertex_count := vertices.size()
-		var indexed = not indices.is_empty()
+		var indexed = indices != null and not indices.is_empty()
 		var index_count = indices.size() if indexed else vertex_count
 		
 		if vertex_count == 0:

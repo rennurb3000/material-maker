@@ -41,7 +41,7 @@ const KEY_CLUSTER_COUNT := "cluster_count"
 const KEY_CLUSTER_ELEMENT_BUFFER := "cluster_element_buffer"
 const KEY_CLUSTER_MORTON_BUFFER := "cluster_morton_buffer"
 const KEY_CLUSTER_MORTON_BUFFER_TMP := "cluster_morton_buffer_tmp"
-
+const KEY_ADD_VERTEX_INFO := "add_vertex_info"
 # TODO refactor constants to common constants! (for mesh extractor)
 const KEY_VERTEX_COUNT := "vertex_count"
 const KEY_INDEX_COUNT := "index_count"
@@ -731,11 +731,11 @@ func _calculate_node_sizes(ctx)->BVHStatus:
 		0
 	)
 	var push_constants := PackedByteArray()
-	push_constants.resize(12)
+	push_constants.resize(16)
 	push_constants.encode_u32(0,node_count)
 	push_constants.encode_u32(4, ctx[KEY_INDEX_COUNT]/3)
 	push_constants.encode_u32(8, LEAF_SIZE)
-	
+	push_constants.encode_u32(12,ctx[KEY_ADD_VERTEX_INFO])
 	var compute_list := _rd.compute_list_begin()
 	_rd.compute_list_bind_compute_pipeline(compute_list,_node_sizes_pipeline)
 	_rd.compute_list_bind_uniform_set(compute_list,uniform_set,0)
@@ -850,13 +850,13 @@ func _writeout_mm_bvh(ctx:Dictionary)->BVHStatus:
 		0
 	)
 	var push_constants := PackedByteArray()
-	push_constants.resize(20)
+	push_constants.resize(24)
 	push_constants.encode_u32(0,total_nodes)
 	push_constants.encode_u32(4, node_data_start)
 	push_constants.encode_u32(8, ctx[KEY_WIDTH])
-	push_constants.encode_u32(12, ctx[KEY_INDEX_COUNT]/3 / 3)
+	push_constants.encode_u32(12, ctx[KEY_INDEX_COUNT]/3)
 	push_constants.encode_u32(16, LEAF_SIZE)
-	
+	push_constants.encode_u32(20,int(ctx[KEY_ADD_VERTEX_INFO]))
 	var compute_list := _rd.compute_list_begin()
 	_rd.compute_list_bind_compute_pipeline(compute_list,_writeout_pipeline)
 	_rd.compute_list_bind_uniform_set(compute_list,uniform_set,0)
@@ -1037,7 +1037,7 @@ func cleanup()->void:
 			_rd.free_rid(rid)
 	_prefix_scan.cleanup()
 			
-func _generate(mesh:Mesh)->ImageTexture:
+func _generate(mesh:Mesh,add_vertex_info:bool=true)->ImageTexture:
 	var total_start_time : int= Time.get_ticks_usec()
 	var ctx := _extract_mesh(mesh)
 	var status := _create_buffers(ctx)
@@ -1046,6 +1046,7 @@ func _generate(mesh:Mesh)->ImageTexture:
 	if status != BVHStatus.OK:
 		print("oh noes")
 		return null
+	ctx[KEY_ADD_VERTEX_INFO] = add_vertex_info
 	status = _generate_lbvh(ctx)
 	print("lbvh : %d usec",Time.get_ticks_usec()-start_time)
 
@@ -1087,7 +1088,7 @@ func _generate(mesh:Mesh)->ImageTexture:
 	
 static func generate(mesh: Mesh,add_vertex_info : bool = false,rendering_device:RenderingDevice=null) -> ImageTexture:
 	var generator := get_instance(rendering_device)
-	return generator._generate(mesh)
+	return generator._generate(mesh,add_vertex_info)
 
 func _create_buffers_from_extraction(ctx:Dictionary,extracted:Dictionary)->BVHStatus:
 		var vertex_count : int = extracted[KEY_VERTEX_COUNT]
