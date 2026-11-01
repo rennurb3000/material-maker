@@ -13,7 +13,9 @@ const MESH_MAPS : Array[Dictionary] = [
 	{name="UV Mask",output_type="f",attribute="uv_mask"},
 ]
 var current_map : MMTexture = null
-var _pipeline : MMMeshRenderingPipeline2 = null
+#var _pipeline : MMMeshRenderingPipeline2 = null
+var _updating := false
+var _update_pending := false
 
 func _ready() -> void:
 	super._ready()
@@ -35,7 +37,7 @@ func get_parameter_defs() -> Array:
 	return[
 		{name="map",type="enum",label="Map",values=MESH_MAPS,default=0},
 		{name="surface",type="float",label="Surface",default=-1.0,min=-1.0,max=128.0,step=1.0},
-		{name= "map_size",type="enum",label="Resolution",default=2048,values=[
+		{name= "map_size",type="enum",label="Resolution",default=3,values=[
 			{name="256",value=256},
 			{name="512",value=512},
 			{name="1024",value=1024},
@@ -64,6 +66,20 @@ func get_current_mesh()->Mesh:
 	return MMMeshManager.get_instance().get_mesh(data.mesh_path)
 
 func update_map()->void:
+	var size := int(get_parameter("map_size"))
+	print("MeshMap2 requested resolution: ", size)
+	if _updating:
+		_update_pending = true
+		return
+	_updating = true
+	while true:
+		_update_pending = false
+		await _render_current_map()
+		if not _update_pending:
+			break
+	_updating = false
+
+func _render_current_map()->void:
 	var mesh := get_current_mesh()
 	if mesh == null:
 		return
@@ -74,9 +90,9 @@ func update_map()->void:
 	if data == null:
 		return
 	var attributes := MMMeshManager.get_instance().get_attributes(data.mesh_path)
-	if attributes.is_empty():
+	if attributes.is_empty() or not attributes.has(MMMeshExtractor.KEY_INDICES):
 		return
-	_pipeline = MMMeshRenderingPipeline2.new()
+	var _pipeline = MMMeshRenderingPipeline2.new()
 	_pipeline.setup(mesh,attributes)
 	
 	var vertex_shader = load("res://addons/material_maker/map_generator/mesh_extraction/meshmap2_vertex.tres").text
@@ -85,7 +101,7 @@ func update_map()->void:
 	var mode := int(get_parameter("map"))
 	var definition := MESH_MAPS[mode]
 	var postprocess := definition.get("postprocess",[])
-	var size := int(get_parameter("map_size"))
+	var size = [256,512,1024,2048,4096][int(get_parameter("map_size"))]
 	current_map = await  _pipeline.render_map(vertex_shader,fragment_shader,Vector2i(size,size),mode,int(get_parameter("surface")),postprocess)
 	notify_output_change(0)
 	mm_deps.dependency_update(get_texture_parameter_name(),current_map,true)

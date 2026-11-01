@@ -272,6 +272,7 @@ func create_gen(data : Dictionary, fix : bool = true) -> MMGenBase:
 		bake = MMGenCustomBake,
 		mesh_loader = MMGenMeshLoader,
 		mesh2sdf = MMGenMesh2Sdf3d,
+		patch_project_3d = MMGenPatchProject3D,
 		sdf = MMGenSDF,
 		ios = MMGenIOs,
 		switch = MMGenSwitch,

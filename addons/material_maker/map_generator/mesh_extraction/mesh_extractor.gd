@@ -193,12 +193,13 @@ func extract_gpu(mesh:Mesh)->Dictionary:
 		input_uniforms.append(_storage_uniform(4, color_buffer))
 
 		# UV
+	
 		var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
 		if not uvs.is_empty():
 			attribute_flags |= HAS_UV
 
 		var uv_data := uvs.to_byte_array() if not uvs.is_empty() \
-		else PackedVector2Array([Vector2.ZERO]).to_byte_array()
+			else PackedVector2Array([Vector2.ZERO]).to_byte_array()
 
 		var uv_buffer := _rd.storage_buffer_create(
 		uv_data.size(), uv_data

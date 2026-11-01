@@ -29,10 +29,12 @@ void main() {
             outColor = vec4(v_position, 1.0);
             break;
         case 1: // normal
-            outColor = vec4(v_normal, 1.0);
+            outColor = vec4(normalize(v_normal), 1.0);
             break;
         case 2: // tangent
-            outColor = v_tangent;
+			vec3 N = normalize(v_normal);
+			vec3 T = normalize(v_tangent.xyz-N*dot(N,v_tangent.xyz));
+            outColor = vec4(T,v_tangent.w<0.0?-1.0:1.0);;
             break;
         case 3: // color
             outColor = vec4(v_color.rgb,1.0);

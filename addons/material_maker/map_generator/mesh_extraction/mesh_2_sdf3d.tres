@@ -313,6 +313,12 @@ float mm_mesh_sdf(vec3 p) {
         return 1e6;
 
     float dist = sqrt(max(best_sq, 0.0));
+	int nodes_offset = int(mm_get_bvh_data(0).x);
+    int root_off = mm_node_offset(0, nodes_offset);
+    vec3 bmin = mm_get_bvh_data(root_off).xyz;
+    vec3 bmax = mm_get_bvh_data(root_off + 1).xyz;
+    if (any(lessThan(p, bmin)) || any(greaterThan(p, bmax)))
+        return dist;
 
     // Avoid axis-aligned rays to reduce edge/corner degeneracies.
     vec3 ray_dir = normalize(vec3(0.173, 0.411, 0.895));

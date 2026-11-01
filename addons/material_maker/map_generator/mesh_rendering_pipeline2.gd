@@ -47,8 +47,15 @@ func setup(mesh_data:Mesh,mesh_attributes:Dictionary)->void:
 	add_parameter_or_texture("map_mode", "int", 0)
 	add_parameter_or_texture("selected_surface", "int", -1)
 
-func _postprocess(source:MMTexture,size:Vector2i,pixels:int,result:Dictionary)->void:
-	result["texture"] = dilate_map(source,size,pixels)
+func _postprocess(source:MMTexture,size:Vector2i,steps:Array,pixels:int,result:Dictionary)->void:
+	var texture := source
+	for step in steps:
+		match step in steps:
+			"dilate":
+				texture = dilate_map(texture,size,size.x/4)
+			"denoise":
+				texture = denoise_map(texture,size)
+	result["texture"] = texture
 	
 func _compute_pass(shader_name:String,source:MMTexture,size:Vector2i,pixels:int,seams:MMTexture = null)->MMTexture:
 	var output := MMTexture.new()
@@ -78,6 +85,18 @@ func dilate_map(source:MMTexture,size:Vector2i,pixels:int)->MMTexture:
 	var result:= _compute_pass("dilate",source,size,pixels,seams)
 	return result if result!=null else source
 
+func denoise_map(source:MMTexture,size:Vector2i)->MMTexture:
+	var result := MMTexture.new()
+	var compute := MMComputeShader.new()
+	compute.add_parameter_or_texture("tex","sampler2D",source)
+	compute.add_parameter_or_texture("radius","int",3)
+	if not compute.set_shader(
+		load("res://addons/material_maker/map_generator/denoise_compute.tres").text,3
+	):
+		return source
+	compute.in_thread_render_ext([result],size)
+	return result
+	
 func render_map(vertex_shader:String,fragment_shader:String,size:Vector2i,map_mode:int,selected_surface:int = -1,postprocess:Array=[])->MMTexture:
 	if not await set_shader(vertex_shader,fragment_shader):
 		return null

@@ -35,23 +35,22 @@ func get_parameter_defs() -> Array:
 				{name="UV",value=2},
 				{name="UV2",value=3},
 				{name="Vertex Color",value=4},
-				{name="Surface ID",value=5}]
+				{name="Surface ID",value=5},
+				{name="Hit Normal",value=6},
+				{name="Ambient Occlusion",value=7},
+				{name="Tangent Normal",value=8},
+				]
 		},
 		{
 			name = "bake_size",
 			type = "enum",
-			default = 2048,
+			default = 3,
 			values =[
 				{name="256",value=256},
 				{name="512",value=512},
 				{name="1024",value=1024},
 				{name="2048",value=2048},
 				{name="4096",value=4096}]
-		},
-		{
-			name="color",
-			type= "color",
-			default = Color(1.0,0.0,0.0,1.0)
 		},
 		{
 			name="offset_scale",
@@ -171,7 +170,7 @@ func bake_maps():
 	var size = int(get_parameter("bake_size"))
 	var sizes := [256, 512, 1024, 2048, 4096]
 	print("bake size is %d"%size)
-	var bake_size = Vector2i(size,size)
+	var bake_size = Vector2i(sizes[size],sizes[size])
 	match int(get_parameter("map_mode")):
 		0: await bake_world_position(bake_size)
 		1: await bake_world_normal(bake_size)
@@ -179,6 +178,9 @@ func bake_maps():
 		3: await bake_uv2(bake_size)
 		4: await bake_vertex_color(bake_size)
 		5: await bake_surface_id(bake_size)
+		6: await bake_hit_normal(bake_size)
+		7: await bake_ao(bake_size)
+		8: await bake_tangent_space_normal(bake_size)
 
 func render_input_texture(input_index : int,size:Vector2i)->MMTexture:
 	var source = get_source(input_index)
@@ -256,7 +258,77 @@ func bake_attribute(attribute_key:String,output_name:String,bake_size:Vector2i)-
 			"""
 		"surface_id":
 			replaces["@BAKE_RESULT"] = """
-				outColor = vec4(a0.rrr,1.0);
+				outColor = vec4(vec3(interpolated.r),1.0);
+			"""
+		"hit_normal":
+			replaces["@BAKE_RESULT"] = """
+				outColor = vec4(normal_hit * 0.5 + 0.5, 1.0);
+			"""
+		"tangent_normal":
+			# i sample 4 points of the low poly position map to generate 
+			# tangent and bitangent
+			replaces["@BAKE_RESULT"] = """
+				vec3 smooth_hit_normal = normalize(interpolated.xyz);
+				vec3 N = normalize(texture(ray_dir, uv).xyz);
+				vec2 texel = 1.0 / vec2(textureSize(ray_origin, 0));
+				vec3 dPdu =
+					texture(ray_origin, uv + vec2(texel.x, 0.0)).xyz -
+					texture(ray_origin, uv - vec2(texel.x, 0.0)).xyz;
+				vec3 dPdv =
+					texture(ray_origin, uv + vec2(0.0, texel.y)).xyz -
+					texture(ray_origin, uv - vec2(0.0, texel.y)).xyz;
+				vec3 T = normalize(dPdu - N * dot(N, dPdu));
+				vec3 B = cross(N, T) * sign(dot(cross(N, T), dPdv));
+				vec3 normal_ts = normalize(vec3(
+					dot(smooth_hit_normal, T),
+					dot(smooth_hit_normal, B),
+					dot(smooth_hit_normal, N)
+				));
+				normal_ts.z = -normal_ts.z;
+				outColor = vec4(normal_ts * 0.5 + 0.5, 1.0);
+				"""
+		"ambient_occlusion":
+			replaces["@BAKE_RESULT"] = """
+			vec3 model_norm = normalize(interpolated.xyz);
+			vec3 ray_start = hit_pos + model_norm * 0.001;
+
+			const int SAMPLES = 16;
+			float ao = 0.0;
+			
+			for (int iteration = 1; iteration <= SAMPLES; iteration++) {
+				vec3 ray_dir;
+				
+				for (int i = 0; i < 5; i++) {
+					ray_dir = random_hemi_point(vec3(
+					rand(uv + float(iteration)),
+					rand(-uv.yx + float(iteration)),
+					0.0
+					), model_norm);
+					
+					if (dot(ray_dir, model_norm) > 0.0) {
+						break;
+					}
+				}
+				
+				vec3 sample_normal;
+				ivec3 sample_vids;
+				int sample_face;
+				vec3 a, b, c;
+				
+				float hit = intersects_bvh(
+				ray_start, ray_dir,
+				sample_normal, sample_vids, sample_face,
+				a, b, c
+				);
+				if (hit == 65536.0 || hit < 0.0 || hit > max_raylength) {
+					hit = 1.0;
+				} else {
+					hit = 1.0 - clamp(dot(model_norm, ray_dir), 0.0, 1.0);
+				}
+				ao += hit;
+			}
+			ao /= float(SAMPLES);
+			outColor = vec4(vec3(ao), 1.0);
 			"""
 		_:
 			replaces["@BAKE_RESULT"] = """
@@ -292,9 +364,11 @@ func bake_vertex_color(bake_size:Vector2i):
 	await bake_attribute(MMMeshExtractor.KEY_COLOR_LUT,"vertex_color",bake_size)
 func bake_surface_id(bake_size:Vector2i):
 	await bake_attribute(MMMeshExtractor.KEY_SURFACE_ID_LUT,"surface_id",bake_size)
-func bake_hit_normal():
-	pass
+func bake_hit_normal(bake_size:Vector2i):
+	await bake_attribute(MMMeshExtractor.KEY_POSITION_LUT,"hit_normal",bake_size)
+func bake_tangent_space_normal(bake_size:Vector2i):
+	await bake_attribute(MMMeshExtractor.KEY_NORMAL_LUT,"tangent_normal",bake_size)
 func bake_thickness():
 	pass
-func bake_ao():
-	pass
+func bake_ao(bake_size:Vector2i):
+	await bake_attribute(MMMeshExtractor.KEY_NORMAL_LUT,"ambient_occlusion",bake_size)
