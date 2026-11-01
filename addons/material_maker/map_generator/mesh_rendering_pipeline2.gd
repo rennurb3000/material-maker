@@ -47,7 +47,7 @@ func setup(mesh_data:Mesh,mesh_attributes:Dictionary)->void:
 	add_parameter_or_texture("map_mode", "int", 0)
 	add_parameter_or_texture("selected_surface", "int", -1)
 
-func _postprocess(source:MMTexture,size:Vector2i,steps:Array,pixels:int,result:Dictionary)->void:
+func _postprocess(source: MMTexture, size: Vector2i, steps: Array)->MMTexture:
 	var texture := source
 	for step in steps:
 		match step in steps:
@@ -55,7 +55,7 @@ func _postprocess(source:MMTexture,size:Vector2i,steps:Array,pixels:int,result:D
 				texture = dilate_map(texture,size,size.x/4)
 			"denoise":
 				texture = denoise_map(texture,size)
-	result["texture"] = texture
+	return texture
 	
 func _compute_pass(shader_name:String,source:MMTexture,size:Vector2i,pixels:int,seams:MMTexture = null)->MMTexture:
 	var output := MMTexture.new()
@@ -104,11 +104,8 @@ func render_map(vertex_shader:String,fragment_shader:String,size:Vector2i,map_mo
 	set_parameter("selected_surface",selected_surface)
 	
 	var result := MMTexture.new()
-	await render(size,TEXTURE_TYPE_RGBA32F,result)
-	var pixels := size.x / 4
-	# dont dilate uv, uv2, uv mask
-	if pixels >0 and "dilate" in postprocess:
-		var processed:={}
-		await mm_renderer.thread_run(_postprocess,[result,size,pixels,processed])
-		result = processed["texture"]
+	await render(size, TEXTURE_TYPE_RGBA32F, result)
+
+	if not postprocess.is_empty():
+		result = await mm_renderer.thread_run(_postprocess,[result, size, postprocess])
 	return result
