@@ -1,22 +1,12 @@
-#[compute]
-#version 450
+[gd_resource type="Resource" script_class="TextResource" format=3 uid="uid://b133v1e2cmvfd"]
 
-#define INVALID_POINTER 0x0
-struct LBVHNode {
-    int left;// pointer to the left child or INVALID_POINTER in case of leaf
-    int right;// pointer to the right child or INVALID_POINTER in case of leaf
-    uint primitiveIdx;// custom value that is copied from the input Element or 0 in case of inner node
-    float aabbMinX;// aabb of the node
-    float aabbMinY;
-    float aabbMinZ;
-    float aabbMaxX;
-    float aabbMaxY;
-    float aabbMaxZ;
-};
-struct MortonCodeElement {
-    uint mortonCode;
-    uint elementIdx;
-};
+[ext_resource type="Script" uid="uid://bc3eljtuurjsd" path="res://addons/material_maker/engine/text_resource.gd" id="1_o2e2t"]
+
+[resource]
+script = ExtResource("1_o2e2t")
+text = "#version 450
+@LBVH_COMMON
+
 layout(local_size_x = 256) in;
 layout(set = 0,binding = 0,std430) readonly buffer LBVHBuffer
 {
@@ -126,5 +116,4 @@ void main()
 		write_texel(output_offset + 2u,
 		    vec4(float(node.left), float(node.right), 0.0, 0.0));
 	}
-    
-}
+}"

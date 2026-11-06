@@ -1,46 +1,13 @@
-// code copied together from https://github.com/MircoWerner/VkLBVH
-#[compute]
+[gd_resource type="Resource" script_class="TextResource" format=3 uid="uid://cox41vxtb4ofu"]
+
+[ext_resource type="Script" uid="uid://bc3eljtuurjsd" path="res://addons/material_maker/engine/text_resource.gd" id="1_o2e2t"]
+
+[resource]
+script = ExtResource("1_o2e2t")
+text = "
 #version 450
 
-#define INVALID_POINTER 0x0
-
-// input for the builder (normally a triangle or some other kind of primitive); it is necessary to allocate and fill the buffer
-struct Element {
-    uint primitiveIdx;// the id of the primitive; this primitive id is copied to the leaf nodes of the  LBVHNode
-    float aabbMinX;// aabb of the primitive
-    float aabbMinY;
-    float aabbMinZ;
-    float aabbMaxX;
-    float aabbMaxY;
-    float aabbMaxZ;
-};
-
-// output of the builder; it is necessary to allocate the (empty) buffer
-struct LBVHNode {
-    int left;// pointer to the left child or INVALID_POINTER in case of leaf
-    int right;// pointer to the right child or INVALID_POINTER in case of leaf
-    uint primitiveIdx;// custom value that is copied from the input Element or 0 in case of inner node
-    float aabbMinX;// aabb of the node
-    float aabbMinY;
-    float aabbMinZ;
-    float aabbMaxX;
-    float aabbMaxY;
-    float aabbMaxZ;
-};
-
-// only used on the GPU side during construction; it is necessary to allocate the (empty) buffer
-struct MortonCodeElement {
-    uint mortonCode;// key for sorting
-    uint elementIdx;// pointer into element buffer
-};
-
-// only used on the GPU side during construction; it is necessary to allocate the (empty) buffer
-struct LBVHConstructionInfo {
-    uint parent;// pointer to the parent
-    int visitationCount;// number of threads that arrived
-};
-
-
+@LBVH_COMMON
 /* VkLBVH written by Mirco Werner: https://github.com/MircoWerner/VkLBVH
 * Based on:
 * https://research.nvidia.com/sites/default/files/pubs/2012-06_Maximizing-Parallelism-in/karras2012hpg_paper.pdf
@@ -204,4 +171,4 @@ void main() {
     if (gID == 0) {
         g_lbvh_construction_infos[0] = LBVHConstructionInfo(0, 0);
     }
-}
+}"

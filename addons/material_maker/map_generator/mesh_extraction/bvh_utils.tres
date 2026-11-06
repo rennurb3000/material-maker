@@ -1,0 +1,66 @@
+[gd_resource type="Resource" script_class="TextResource" format=3 uid="uid://cbt70lhquvfv8"]
+
+[ext_resource type="Script" uid="uid://bc3eljtuurjsd" path="res://addons/material_maker/engine/text_resource.gd" id="1_ijq31"]
+
+[resource]
+script = ExtResource("1_ijq31")
+text = "
+const float BVH_NO_HIT = -1.0;
+const float BVH_FAR_HIT = 65536.0;
+
+float intersect_aabb(vec3 ray_origin, vec3 ray_dir, vec3 box_min, vec3 box_max, bool solid) {
+	vec3 tMin = (box_min - ray_origin) / ray_dir;
+	vec3 tMax = (box_max - ray_origin) / ray_dir;
+	vec3 t1 = min(tMin, tMax);
+	vec3 t2 = max(tMin, tMax);
+	float tNear = max(max(t1.x, t1.y), t1.z);
+	float tFar = min(min(t2.x, t2.y), t2.z);
+
+	if (tNear > tFar || (tFar < 0.0 && tNear < 0.0)) {
+		return -1.0;
+	}
+	if (tNear < 0.0) {
+		float temp = tNear;
+		tNear = tFar;
+		tFar = temp;
+		tNear *= float(!solid);
+	}
+
+	return tNear;
+}
+
+float intersects_triangle(vec3 ray_start, vec3 ray_dir, vec3 v0, vec3 v1, vec3 v2) {
+	vec3 e1 = v1 - v0;
+	vec3 e2 = v2 - v0;
+	vec3 h = cross(ray_dir, e2);
+	float a = dot(e1, h);
+	if (abs(a) < 0.000001) {
+		return -1.0;
+	}
+
+	float f = 1.0 / a;
+
+	vec3 s = ray_start - v0;
+	float u = f * dot(s, h);
+	if (u < 0.0 || u > 1.0) {
+		return -1.0;
+	}
+
+	vec3 q = cross(s, e1);
+	float v = f * dot(ray_dir, q);
+	if (v < 0.0 || u + v > 1.0) {
+		return -1.0;
+	}
+
+	float t = f * dot(e2, q);
+	return t > 0.0000001 ? t : -1.0;
+}
+
+vec4 get_data(int index) {
+	ivec2 data_size = textureSize(bvh_data, 0);
+	return texelFetch(bvh_data, ivec2(
+		index % data_size.x,
+		index / data_size.x
+	), 0);
+}
+"

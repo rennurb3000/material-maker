@@ -1,0 +1,79 @@
+[gd_resource type="Resource" script_class="TextResource" format=3 uid="uid://bgupqwanlm5ea"]
+
+[ext_resource type="Script" uid="uid://bc3eljtuurjsd" path="res://addons/material_maker/engine/text_resource.gd" id="1_ijq31"]
+
+[resource]
+script = ExtResource("1_ijq31")
+text = "#version 450
+
+layout(location = 0) in vec3 v_position;
+layout(location = 1) in vec3 v_normal;
+layout(location = 6) flat in float v_surface_id;
+
+layout(location = 0) out vec4 outColor;
+
+@DECLARATIONS
+@BVH_UTILS
+@BVH_TRAVERSAL
+
+void main() {
+    @SURFACE_FILTER
+
+    vec3 P = v_position;
+    vec3 D = normalize(patch_direction.xyz);
+	if (dot(normalize(v_normal), D) <= 0.0)
+		discard;
+    // Mesh position and direction in patch-local space
+    vec3 local = (patch_inverse * vec4(P, 1.0)).xyz;
+    vec3 local_dir = (patch_inverse * vec4(D, 0.0)).xyz;
+
+    if (abs(local_dir.z) < 1e-6)
+        discard;
+
+    // Intersection with patch plane (local Z = 0)
+    float t = -local.z / local_dir.z;
+
+    if (t <= 0.0)
+        discard;
+
+    vec3 hit_local = local + local_dir * t;
+
+    // Patch-local XY -> UV
+    vec2 patch_uv = hit_local.xy / vec2(su, sv) + 0.5;
+
+    if (any(lessThan(patch_uv, vec2(0.0))) ||
+        any(greaterThan(patch_uv, vec2(1.0))))
+        discard;
+
+    // Visibility: check if mesh geometry blocks the patch
+    const float EPS = 0.0001;
+
+    vec3 normal_hit;
+    ivec3 hit_vids;
+    int hit_face;
+    vec3 a, b, c;
+
+    float hit = intersects_bvh(
+        P + D * EPS,
+        D,
+        normal_hit,
+        hit_vids,
+        hit_face,
+        a, b, c
+    );
+
+if (hit < t - 2.0 * EPS) {
+    float relative_hit = hit / max(t, 1e-6);
+
+    outColor = vec4(
+        1.0 - clamp(relative_hit, 0.0, 1.0),
+        clamp(relative_hit, 0.0, 1.0),
+        0.0,
+        1.0
+    );
+    return;
+}
+
+    // RG = projected UV, B = 0, A = projection mask
+    outColor = vec4(patch_uv, 0.0, 1.0);
+}"

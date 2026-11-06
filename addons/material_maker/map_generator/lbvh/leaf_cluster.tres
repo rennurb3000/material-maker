@@ -1,0 +1,77 @@
+[gd_resource type="Resource" script_class="TextResource" format=3 uid="uid://uktkdp8bb6y8"]
+
+[ext_resource type="Script" uid="uid://bc3eljtuurjsd" path="res://addons/material_maker/engine/text_resource.gd" id="1_o2e2t"]
+
+[resource]
+script = ExtResource("1_o2e2t")
+text = "
+#version 450
+
+@LBVH_COMMON
+#define FLT_MAX 3.402823466e+38
+#define FLT_MIN 1.175494351e-38
+
+layout (std430, set = 0, binding = 0) readonly buffer elements {
+    Element g_elements[];
+};
+layout (std430, set = 0, binding = 1) readonly buffer sortedMorton{
+    MortonCodeElement g_sorted_morton[];
+};
+layout (std430, set = 0, binding = 2) writeonly buffer clusterElements{
+    Element g_cluster_elements[];
+};
+layout (std430, set = 0, binding = 3) writeonly buffer clusterMorton{
+    MortonCodeElement g_cluster_morton[];
+};
+
+layout(local_size_x = 256) in;
+layout(push_constant,std430) uniform PushConstants
+{
+    uint g_num_elements;
+    uint g_leaf_size;
+    float g_min_x;// AABB that contains the entire model
+    float g_min_y;
+    float g_min_z;
+    float g_max_x;
+    float g_max_y;
+    float g_max_z;
+};
+
+void main(){
+    uint cluster_id = gl_GlobalInvocationID.x;
+    uint cluster_count = (g_num_elements + g_leaf_size-1)/g_leaf_size;
+
+    if(cluster_id >= cluster_count)
+    {
+        return;
+    }
+    uint first = cluster_id * g_leaf_size;
+    uint count = min(uint(g_leaf_size),g_num_elements-first);
+
+    vec3 bounds_min = vec3(FLT_MAX);
+    vec3 bounds_max = vec3(-FLT_MAX);
+
+    for(uint i=0;i<count;i++)
+    {
+        uint element_idx = g_sorted_morton[first+i].elementIdx;
+        Element element = g_elements[element_idx];
+
+        bounds_min = min(bounds_min,vec3(element.aabbMinX,element.aabbMinY,element.aabbMinZ));    
+        bounds_max = max(bounds_max,vec3(element.aabbMaxX,element.aabbMaxY,element.aabbMaxZ));    
+    }
+    vec3 center = (bounds_min+ 0.5 * (bounds_max-bounds_min)).xyz;
+    // map to unit cube
+    vec3 g_min = vec3(g_min_x, g_min_y, g_min_z);
+    vec3 g_max = vec3(g_max_x, g_max_y, g_max_z);
+    vec3 mappedCenter = (center - g_min) / (g_max - g_min);
+    uint morton_code = morton3D(mappedCenter.x,mappedCenter.y,mappedCenter.z);
+    g_cluster_morton[cluster_id]= MortonCodeElement(morton_code,cluster_id);
+    g_cluster_elements[cluster_id] = Element(
+        first,
+        bounds_min.x, bounds_min.y, bounds_min.z,
+        bounds_max.x, bounds_max.y, bounds_max.z
+    );
+}
+
+
+"

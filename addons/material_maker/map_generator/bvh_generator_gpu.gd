@@ -1,50 +1,86 @@
-# TODO : check subgroup size for nvidia(32) or amd(64) and replace 
-# TODO : replace LBVH_COMMON
 extends Object
 class_name MMBvhGeneratorGPU
-const KEY_VERTICES := "vertices"
-const KEY_INDICES := "indices"
-const KEY_SURFACE_IDS := "surface_ids"
-const KEY_SCENE_AABB := "scene_aabb"
-const KEY_VERTEX_BUFFER := "vertex_buffer"
-const KEY_INDEX_BUFFER := "index_buffer"
-const KEY_MORTON_BUFFER := "morton_buffer"
-const KEY_MORTON_BUFFER_TMP := "morton_buffer_tmp"
-const KEY_ELEMENT_BUFFER := "element_buffer"
-const KEY_LBVH_BUFFER := "lbvh_buffer"
-const KEY_LBVH_CONSTRUCTION_INFO_BUFFER = "lbvh_construction_info_buffer"
-const KEY_BVH_IMAGE := "bvh_image"
-const KEY_BVH_IMAGE_TEXTURE := "bvh_image_texture"
-const KEY_NODE_SIZE_BUFFER := "node_size_buffer"
-const KEY_NODE_OFFSET_BUFFER := "node_offset_buffer"
-const KEY_NODE_LEVEL_BUFFER := "node_level_buffer"
-const KEY_PACKED_BVH_BUFFER:= "packed_bvh_buffer"
-const KEY_NODE_WRITEOUT_BUFFER:= "node_writeout_buffer"
-const KEY_NODE_DATA_START := "node_data_start"
+# LBVH Overview
+# This is a GPU BVH builder (LBVH),an integration of 
+# https://github.com/MircoWerner/VkLBVH 
+# also a good read : https://research.nvidia.com/sites/default/files/pubs/2010-06_HLBVH-Hierarchical-LBVH/HLBVH-final.pdf
+# Architecture wise the bvh building is called via the static generate function
+# which internally creates a singleton instance of the builder 
+# Each stage is done within a compute shader pipeline
+# For each BVH, a context dictionary is handed over each stage
+# 
+# - mesh extraction and buffer creation
+# - 1: 	element wise aabb
+#		creates an aabb for each triangle
+#		it is stored in the elementwise buffers
+# -2 :	for each element a morton code is generated
+#		this is a spatial hash encoding x,y,z of the aabb center 
+#		in an alternating form
+# -3 :	the elements are sorted regarding their morton codes 
+#		where spatial near elements are nearby
+# -4 : 	To get leaf nodes with 6 children like in the original bvh code
+#		clusters of max 6 elements are created and written in a buffer 
+#		as is the morton code of the aabb center
+# -5 :	Same as earlier, the clusters are sorted according the morton codes
+# -6 : 	Now that the clusters are arranged in a spatial ordering,
+#		A hierarchy is built, but this time bottom up and in parallel
+# -7 :	The compound AABBs are built 
+#
+#	At this point we have built the complete bvh .
+#	Within the following stages, the format is adjusted to a mm bvh compatible form!
+#	(_generate_mm_bvh)
+# -8 :	for each node, the level is computed (by going pack the parent nodes and count)
+# -9 :	the size of each node is calculated, depending on the number of children (leaf node) or inbetween nodes
+# -10 :	the storage position of each node is calculated using a prefix scan (blelloch scan)
+#		example (1,2,1,1,3,..) -> (0,1,3,4,5,8)....
+# -11 : the writeout shader, which encodes everything into a texture
+# Finally the generated bvh texture is read back to the cpu
+# and the resources from the context dictionary are cleaned up
+# which leaves you with the regular old BVH
+
+const KEY_VERTICES : String = "vertices"
+const KEY_INDICES : String = "indices"
+const KEY_SURFACE_IDS : String = "surface_ids"
+const KEY_SCENE_AABB : String = "scene_aabb"
+const KEY_VERTEX_BUFFER : String = "vertex_buffer"
+const KEY_INDEX_BUFFER : String = "index_buffer"
+const KEY_MORTON_BUFFER : String = "morton_buffer"
+const KEY_MORTON_BUFFER_TMP : String = "morton_buffer_tmp"
+const KEY_ELEMENT_BUFFER : String = "element_buffer"
+const KEY_LBVH_BUFFER : String = "lbvh_buffer"
+const KEY_LBVH_CONSTRUCTION_INFO_BUFFER : String = "lbvh_construction_info_buffer"
+const KEY_BVH_IMAGE : String = "bvh_image"
+const KEY_BVH_IMAGE_TEXTURE : String = "bvh_image_texture"
+const KEY_NODE_SIZE_BUFFER : String = "node_size_buffer"
+const KEY_NODE_OFFSET_BUFFER : String = "node_offset_buffer"
+const KEY_NODE_LEVEL_BUFFER : String = "node_level_buffer"
+const KEY_PACKED_BVH_BUFFER: String = "packed_bvh_buffer"
+const KEY_NODE_WRITEOUT_BUFFER: String = "node_writeout_buffer"
+const KEY_NODE_DATA_START : String = "node_data_start"
 #const KEY_SIDE := "side" non square texture, matching cpu mm
-const KEY_WIDTH := "width"
-const KEY_HEIGHT := "height"
-const MAX_TEXTURE_WIDTH := 16384
-const LBVH_NODE_SIZE := 36
-const ELEMENT_SIZE := 28
-const LBVH_CONSTRUCTION_INFO_SIZE := 8 # uint +int
-const INVALID_POINTER :=0
-const KEY_BVH_IMAGE_RID := "bvh_image_rid"
-const MM_HEADER_TEXELS := 1
-const MM_NODE_TEXELS := 3 #TODO replace in shader
-const MM_LEAF_TEXELS := 5 #TODO selectable , for normal mode, or bake mode
+const KEY_WIDTH : String = "width"
+const KEY_HEIGHT : String = "height"
+const MAX_TEXTURE_WIDTH : int = 16384
+const LBVH_NODE_SIZE : int = 36
+const ELEMENT_SIZE : int = 28
+const LBVH_CONSTRUCTION_INFO_SIZE : int = 8 # uint +int
+const INVALID_POINTER : int = 0
+const KEY_BVH_IMAGE_RID : String =  "bvh_image_rid"
+const MM_HEADER_TEXELS : int = 1
+const MM_NODE_TEXELS : int = 3 #TODO replace in shader
+const MM_LEAF_TEXELS : int = 5 #TODO selectable , for normal mode, or bake mode
 
-const LEAF_SIZE := 6 
-const MORTON_ELEMENT_SIZE := 8
+const LEAF_SIZE : int = 6 
+const MORTON_ELEMENT_SIZE : int = 8
 
-const KEY_CLUSTER_COUNT := "cluster_count"
-const KEY_CLUSTER_ELEMENT_BUFFER := "cluster_element_buffer"
-const KEY_CLUSTER_MORTON_BUFFER := "cluster_morton_buffer"
-const KEY_CLUSTER_MORTON_BUFFER_TMP := "cluster_morton_buffer_tmp"
-const KEY_ADD_VERTEX_INFO := "add_vertex_info"
+const KEY_CLUSTER_COUNT : String = "cluster_count"
+const KEY_CLUSTER_ELEMENT_BUFFER : String = "cluster_element_buffer"
+const KEY_CLUSTER_MORTON_BUFFER : String = "cluster_morton_buffer"
+const KEY_CLUSTER_MORTON_BUFFER_TMP : String = "cluster_morton_buffer_tmp"
+const KEY_ADD_VERTEX_INFO : String = "add_vertex_info"
 # TODO refactor constants to common constants! (for mesh extractor)
-const KEY_VERTEX_COUNT := "vertex_count"
-const KEY_INDEX_COUNT := "index_count"
+const KEY_VERTEX_COUNT : String = "vertex_count"
+const KEY_INDEX_COUNT : String = "index_count"
 
 #TODO extend for better debugability
 enum BVHStatus{
@@ -62,40 +98,23 @@ class LBVHNode:
 class LBVHConstructionInfo:
 	var parent: int
 	var visitationCount;
-
+	
 # Using the "lazy" singleton pattern for a static interface
 static var _instance : MMBvhGeneratorGPU
 
 var _rd: RenderingDevice
 
-# required pipelines are kept as members
-var _triangle_aabb_shader:RID
-var _triangle_aabb_pipeline:RID 
+# stages:
 
-var _morton_shader :RID
-var _morton_pipeline :RID
-
-var _radix_shader :RID
-var _radix_pipeline : RID
-
-var _hierarchy_shader : RID
-var _hierarchy_pipeline :RID
-
-var _bb_node_shader :RID
-var _bb_node_pipeline :RID 
-
-var _node_sizes_shader :RID
-var _node_sizes_pipeline :RID
-
-var _writeout_shader : RID
-var _writeout_pipeline :RID
-
-var _node_levels_shader : RID
-var _node_levels_pipeline :RID
-
-var _leaf_cluster_shader: RID
-var _leaf_cluster_pipeline: RID
-
+var _triangle_aabb_stage : MMComputeShaderStage
+var _morton_stage : MMComputeShaderStage
+var _radix_stage : MMComputeShaderStage
+var _leaf_cluster_stage : MMComputeShaderStage
+var _hierarchy_stage : MMComputeShaderStage
+var _bb_node_stage : MMComputeShaderStage
+var _node_sizes_stage : MMComputeShaderStage
+var _writeout_stage : MMComputeShaderStage
+var _node_levels_stage : MMComputeShaderStage
 # used to calculate storage positions 
 var _prefix_scan : PrefixScan
 # simple singleton pattern, so we can easily provide a static bvh interface like before
@@ -113,100 +132,29 @@ func _init(rendering_device:RenderingDevice) -> void:
 	assert(rendering_device!= null)
 	_rd = rendering_device
 	_prefix_scan = PrefixScan.new(_rd)
-	_init_triangle_aabb_pipeline()
-	_init_morton_pipeline()
-	_init_radix_pipeline()
-	_init_leaf_cluster_pipeline()
-	_init_hierarchy_pipeline()
-	_init_bb_pipeline()
-	_init_node_size_pipeline()
-	_init_node_levels_pipeline()
-	_init_writeout_pipeline()
+	_init_stages()
+	
+func _init_stages():
+	const BASE_PATH := "res://addons/material_maker/map_generator/lbvh/"
+	var common: String = load(BASE_PATH + "LBVH_common.tres").text
+	var stages :Array[Dictionary]= [
+			{"name":"Triangle AABB","res":"triangle_aabb.tres","stage":"_triangle_aabb_stage"},
+			{"name":"Morton","res":"morton.tres","stage":"_morton_stage"},
+			{"name":"Radix","res":"sort_morton_codes.tres","stage":"_radix_stage"},
+			{"name":"Leaf Cluster","res":"leaf_cluster.tres","stage":"_leaf_cluster_stage"},
+			{"name":"Hierarchy","res":"build_hierarchy.tres","stage":"_hierarchy_stage"},
+			{"name":"Bounding Boxes","res":"build_bounding_boxes.tres","stage":"_bb_node_stage"},
+			{"name": "Node Sizes", "res": "node_size_prefix.tres", "stage": "_node_sizes_stage"},
+			{"name":"Node Levels","res":"generate_node_levels.tres","stage":"_node_levels_stage"},
+			{"name":"MM Writeout","res":"writeout_mm_bvh.tres","stage":"_writeout_stage"},
+		]
+	for config : Dictionary in stages:
+		var stage : MMComputeShaderStage = MMComputeShaderStage.new(_rd,config["name"],true)
+		var source : String = load(BASE_PATH+config["res"]).text
+		var success: bool = stage.set_shader(source,{"@LBVH_COMMON":common})
+		assert(success,"Failed to compile %s"%[config["res"]])
+		set(config["stage"],stage)
 
-# TODO refactor init functions
-# NOTE i am not using a MM Pipeline, since i want to use that in my own game -.-
-func _init_triangle_aabb_pipeline() -> void:
-	if _triangle_aabb_pipeline.is_valid():
-		return
-	var shader_file := load("res://addons/material_maker/map_generator/lbvh/triangle_aabb.glsl")
-	var shader_spirv : RDShaderSPIRV = shader_file.get_spirv()
-	_triangle_aabb_shader = _rd.shader_create_from_spirv(shader_spirv)
-	_triangle_aabb_pipeline = _rd.compute_pipeline_create(_triangle_aabb_shader)
-
-func _init_morton_pipeline():
-	if _morton_pipeline.is_valid():
-		return
-	var shader_file := load("res://addons/material_maker/map_generator/lbvh/morton.glsl")
-	var shader_spirv : RDShaderSPIRV = shader_file.get_spirv()
-	_morton_shader = _rd.shader_create_from_spirv(shader_spirv)
-	_morton_pipeline = _rd.compute_pipeline_create(_morton_shader)
-	
-func _init_radix_pipeline():
-	if _radix_pipeline.is_valid():
-		return
-	var shader_file := load("res://addons/material_maker/map_generator/lbvh/sort_morton_codes.glsl")
-	var shader_spirv : RDShaderSPIRV = shader_file.get_spirv()
-	_radix_shader = _rd.shader_create_from_spirv(shader_spirv)
-	_radix_pipeline = _rd.compute_pipeline_create(_radix_shader)
-	
-func _init_leaf_cluster_pipeline():
-	if _leaf_cluster_pipeline.is_valid():
-		return
-	var shader_file := load("res://addons/material_maker/map_generator/lbvh/leaf_cluster.glsl")
-	var shader_spirv : RDShaderSPIRV = shader_file.get_spirv()
-	_leaf_cluster_shader = _rd.shader_create_from_spirv(shader_spirv)
-	_leaf_cluster_pipeline = _rd.compute_pipeline_create(_leaf_cluster_shader)
-	
-func _init_hierarchy_pipeline():
-	if _hierarchy_pipeline.is_valid():
-		return
-	var shader_file := load("res://addons/material_maker/map_generator/lbvh/build_hierarchy.glsl")
-	var shader_spirv : RDShaderSPIRV = shader_file.get_spirv()
-	_hierarchy_shader = _rd.shader_create_from_spirv(shader_spirv)
-	_hierarchy_pipeline = _rd.compute_pipeline_create(_hierarchy_shader)
-	
-func _init_bb_pipeline():
-	if _bb_node_pipeline.is_valid():
-		return
-	var shader_file := load("res://addons/material_maker/map_generator/lbvh/build_bounding_boxes.glsl")
-	var shader_spirv : RDShaderSPIRV = shader_file.get_spirv()
-	_bb_node_shader = _rd.shader_create_from_spirv(shader_spirv)
-	_bb_node_pipeline = _rd.compute_pipeline_create(_bb_node_shader)
-
-func _init_node_size_pipeline():
-	if _node_sizes_pipeline.is_valid():
-		return
-	var shader_file := load("res://addons/material_maker/map_generator/lbvh/node_size_prefix.glsl")
-	var shader_spirv : RDShaderSPIRV = shader_file.get_spirv()
-	_node_sizes_shader = _rd.shader_create_from_spirv(shader_spirv)
-	_node_sizes_pipeline = _rd.compute_pipeline_create(_node_sizes_shader)
-	
-func _init_writeout_pipeline():
-	if _writeout_pipeline.is_valid():
-		return
-	var shader_file := load("res://addons/material_maker/map_generator/lbvh/writeout_mm_bvh.glsl")
-	var shader_spirv : RDShaderSPIRV = shader_file.get_spirv()
-	_writeout_shader = _rd.shader_create_from_spirv(shader_spirv)
-	_writeout_pipeline = _rd.compute_pipeline_create(_writeout_shader)
-
-func _init_node_levels_pipeline():
-	if _node_levels_pipeline.is_valid():
-		return
-	var shader_file := load("res://addons/material_maker/map_generator/lbvh/generate_node_levels.glsl")
-	var shader_spirv : RDShaderSPIRV = shader_file.get_spirv()
-	_node_levels_shader = _rd.shader_create_from_spirv(shader_spirv)
-	_node_levels_pipeline = _rd.compute_pipeline_create(_node_levels_shader)
-# idea: lbvh based on https://github.com/MircoWerner/VkLBVH
-# https://research.nvidia.com/sites/default/files/pubs/2010-06_HLBVH-Hierarchical-LBVH/HLBVH-final.pdf
-# as far as i understand it: 
-# 1) morton : each "potent" has a digit from the next coordinate slice x0,y0,z0,x1,y1,z1,...
-# 2) therfore, all morton codes can be radix sorted and can easily create the splits 
-# 3) build the hierachy -> find out how to write to the Image
-# - rework the vertex generatioon
-# TODO shader replacement + refactor 
-# (reuse material-maker/addons/material_maker/engine/pipeline/compute_shader.gd if possible)
-# Prepare buffers from mesh for lbvh 
-# TODO material idx -> prefix sum
 # https://github.com/linebender/vello/blob/custom-hal-archive-with-shaders/tests/shader/prefix.comp
 static func _extract_mesh(mesh:Mesh)-> Dictionary:
 	# TODO extend for all surfaces! and create LUT with that
@@ -270,46 +218,21 @@ func _create_buffers(ctx:Dictionary)-> BVHStatus:
 	ctx[KEY_ELEMENT_BUFFER] = _rd.storage_buffer_create(tri_count*ELEMENT_SIZE) # aabb min + aabb max + id = 12+12+4 
 	return BVHStatus.OK
 	
-func _generate_element_aabbs(ctx:Dictionary)->BVHStatus:
-	# create aabbs for each element/primtive/triangle
-	var uniforms : Array[RDUniform] = []
+
+func _generate_element_aabbs_stage(ctx:Dictionary)->BVHStatus:
+	var stage : MMComputeShaderStage= _triangle_aabb_stage
+	stage.set_uniform(0,0,RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER,ctx[KEY_VERTEX_BUFFER])
+	stage.set_uniform(0,1,RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER,ctx[KEY_INDEX_BUFFER])
+	stage.set_uniform(0,2,RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER,ctx[KEY_ELEMENT_BUFFER])
 	
-	# vertices
-	var vertex_uniform = RDUniform.new()
-	vertex_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	vertex_uniform.binding = 0
-	vertex_uniform.add_id(ctx[KEY_VERTEX_BUFFER])
-	uniforms.push_back(vertex_uniform)
-	
-	# indices
-	var index_uniform := RDUniform.new()
-	index_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	index_uniform.binding = 1
-	index_uniform.add_id(ctx[KEY_INDEX_BUFFER])
-	uniforms.push_back(index_uniform)
-	
-	# output_elements
-	var element_uniform := RDUniform.new()
-	element_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	element_uniform.binding = 2
-	element_uniform.add_id(ctx[KEY_ELEMENT_BUFFER])
-	uniforms.push_back(element_uniform)
-	
-	var uniform_set := _rd.uniform_set_create(uniforms,_triangle_aabb_shader,0)
 	var tri_count : int = ctx[KEY_INDEX_COUNT]/3
-	var push_constants := PackedByteArray()
-	push_constants.resize(4)
-	push_constants.encode_u32(0,tri_count)
-	
-	var compute_list := _rd.compute_list_begin()
-	_rd.compute_list_bind_compute_pipeline(compute_list,_triangle_aabb_pipeline)
-	_rd.compute_list_bind_uniform_set(compute_list,uniform_set,0)
-	_rd.compute_list_set_push_constant(compute_list,push_constants,push_constants.size())
-	_rd.compute_list_dispatch(compute_list,ceili(float(tri_count)/64.0),1,1)
-	
-	_rd.compute_list_end()
-	_rd.submit()
-	_rd.sync()
+	var pc := PackedByteArray()
+	pc.resize(4)
+	pc.encode_u32(0,tri_count)
+	stage.set_push_constants(pc)
+	var groups = ceili(float(tri_count)/64.0)
+	if not stage.dispatch(groups,1,1):
+		return BVHStatus.PIPELINE_CREATE_FAILED
 	return BVHStatus.OK
 	
 static func generate_triangle_aabbs_test(mesh:Mesh,rendering_device:RenderingDevice,ctx :Dictionary)->BVHStatus:
@@ -320,7 +243,7 @@ static func generate_triangle_aabbs_test(mesh:Mesh,rendering_device:RenderingDev
 	var status = generator._create_buffers(ctx)
 	if status != BVHStatus.OK:
 		return status
-	status = generator._generate_element_aabbs(ctx)
+	status = generator._generate_element_aabbs_stage(ctx)
 	if status != BVHStatus.OK:
 		return status
 	return BVHStatus.OK
@@ -338,47 +261,28 @@ static func calculate_triangle_aabb_cpu(vertices:PackedVector3Array,indices:Pack
 
 
 func _generate_morton_codes(ctx:Dictionary)->BVHStatus:
-	var uniforms : Array[RDUniform] = []
-	if not _morton_pipeline.is_valid():
-		return BVHStatus.PIPELINE_CREATE_FAILED
-	var primitive_count : int =  ctx[KEY_INDEX_COUNT]/3
-	ctx[KEY_MORTON_BUFFER] = _rd.storage_buffer_create(primitive_count*8) # uint morton + uint primitive idx
-	
-	var morton_uniform := RDUniform.new()
-	morton_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	morton_uniform.binding = 0
-	morton_uniform.add_id(ctx[KEY_MORTON_BUFFER])
-	uniforms.push_back(morton_uniform)
-	
-	var element_uniform = RDUniform.new()
-	element_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	element_uniform.binding = 1
-	element_uniform.add_id(ctx[KEY_ELEMENT_BUFFER])
-	uniforms.push_back(element_uniform)
-	
-	var uniform_set := _rd.uniform_set_create(uniforms,_morton_shader,0)
+	var primitive_count : int = ctx[KEY_INDEX_COUNT]/3
+	ctx[KEY_MORTON_BUFFER] = _rd.storage_buffer_create(primitive_count*MORTON_ELEMENT_SIZE)
+	_morton_stage.set_uniform(0,0,RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER,ctx[KEY_MORTON_BUFFER])
+	_morton_stage.set_uniform(0,1,RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER,ctx[KEY_ELEMENT_BUFFER])
 	var aabb : AABB = ctx[KEY_SCENE_AABB]
+	var pc : PackedByteArray = PackedByteArray()
+	pc.resize(28)
+	pc.encode_u32(0, primitive_count)
+	pc.encode_float(4, aabb.position.x)
+	pc.encode_float(8, aabb.position.y)
+	pc.encode_float(12, aabb.position.z)
+	pc.encode_float(16, aabb.end.x)
+	pc.encode_float(20, aabb.end.y)
+	pc.encode_float(24, aabb.end.z)
+	_morton_stage.set_push_constants(pc)
 	
-	var push_constants := PackedByteArray()
-	push_constants.resize(28) # 1*4 2*12 = 28+ alignment
-	push_constants.encode_u32(0,primitive_count)
-	push_constants.encode_float(4,aabb.position.x)
-	push_constants.encode_float(8,aabb.position.y)
-	push_constants.encode_float(12,aabb.position.z)
-	push_constants.encode_float(16,aabb.end.x)
-	push_constants.encode_float(20,aabb.end.y)
-	push_constants.encode_float(24,aabb.end.z)
-	
-	var compute_list := _rd.compute_list_begin()
-	_rd.compute_list_bind_compute_pipeline(compute_list,_morton_pipeline)
-	_rd.compute_list_bind_uniform_set(compute_list,uniform_set,0)
-	_rd.compute_list_set_push_constant(compute_list,push_constants,push_constants.size())
-	_rd.compute_list_dispatch(compute_list,ceili(float(primitive_count)/64.0),1,1)
-	_rd.compute_list_end()
-	_rd.submit()
-	_rd.sync()
+	var groups := ceili(float(primitive_count) / 64.0)
+	if not _morton_stage.dispatch(groups,1,1):
+		return BVHStatus.PIPELINE_CREATE_FAILED
 	return BVHStatus.OK
-
+	
+	
 static func generate_morton_codes_test(mesh:Mesh,
 										rendering_device : RenderingDevice,
 										ctx:Dictionary)->BVHStatus:
@@ -388,7 +292,7 @@ static func generate_morton_codes_test(mesh:Mesh,
 	var status := generator._create_buffers(ctx)
 	if status != BVHStatus.OK:
 		return status
-	status = generator._generate_element_aabbs(ctx)
+	status = generator._generate_element_aabbs_stage(ctx)
 	if status != BVHStatus.OK:
 		return status
 	status = generator._generate_morton_codes(ctx)
@@ -418,49 +322,35 @@ static func calculate_morton_code_cpu(aabb:AABB,scene_aabb:AABB)->int:
 	return _morton3d(mapped.x,mapped.y,mapped.z)
 
 func _generate_leaf_clusters(ctx:Dictionary)->BVHStatus:
-	if not _leaf_cluster_pipeline.is_valid():
-		return BVHStatus.PIPELINE_CREATE_FAILED
-	var triangle_count : int = ctx[KEY_INDEX_COUNT]/3
-	var cluster_count :int = ceili(float(triangle_count)/float(LEAF_SIZE))
+	var triangle_count: int = ctx[KEY_INDEX_COUNT] / 3
+	var cluster_count: int = ceili(float(triangle_count) / float(LEAF_SIZE))
 	ctx[KEY_CLUSTER_COUNT] = cluster_count
-	ctx[KEY_CLUSTER_ELEMENT_BUFFER] = _rd.storage_buffer_create(cluster_count*ELEMENT_SIZE)
-	ctx[KEY_CLUSTER_MORTON_BUFFER] = _rd.storage_buffer_create(cluster_count*MORTON_ELEMENT_SIZE)
+	ctx[KEY_CLUSTER_ELEMENT_BUFFER] = _rd.storage_buffer_create(cluster_count * ELEMENT_SIZE)
+	ctx[KEY_CLUSTER_MORTON_BUFFER] = _rd.storage_buffer_create(cluster_count * MORTON_ELEMENT_SIZE)
+	_leaf_cluster_stage.set_uniform(0, 0, RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, ctx[KEY_ELEMENT_BUFFER])
+	_leaf_cluster_stage.set_uniform(0, 1, RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, ctx[KEY_MORTON_BUFFER])
+	_leaf_cluster_stage.set_uniform(0, 2, RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, ctx[KEY_CLUSTER_ELEMENT_BUFFER])
+	_leaf_cluster_stage.set_uniform(0, 3, RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, ctx[KEY_CLUSTER_MORTON_BUFFER])
 	
-	var uniforms : Array[RDUniform] = []
-	for buffer in[
-		ctx[KEY_ELEMENT_BUFFER],
-		ctx[KEY_MORTON_BUFFER],
-		ctx[KEY_CLUSTER_ELEMENT_BUFFER],
-		ctx[KEY_CLUSTER_MORTON_BUFFER],
-	]:
-		var uniform := RDUniform.new()
-		uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-		uniform.binding = uniforms.size()
-		uniform.add_id(buffer)
-		uniforms.append(uniform)
-	var uniform_set := _rd.uniform_set_create(uniforms,_leaf_cluster_shader,0)
-	var aabb : AABB = ctx[KEY_SCENE_AABB]
-	var push_constants := PackedByteArray()
-	push_constants.resize(32)
-	push_constants.encode_u32(0, triangle_count)
-	push_constants.encode_u32(4,LEAF_SIZE)
-	push_constants.encode_float(8,aabb.position.x)
-	push_constants.encode_float(12,aabb.position.y)
-	push_constants.encode_float(16,aabb.position.z)
-	push_constants.encode_float(20,aabb.end.x)
-	push_constants.encode_float(24,aabb.end.y)
-	push_constants.encode_float(28,aabb.end.z)
+	var aabb: AABB = ctx[KEY_SCENE_AABB]
+	var pc : PackedByteArray = PackedByteArray()
+	pc.resize(32)
+	pc.encode_u32(0, triangle_count)
+	pc.encode_u32(4, LEAF_SIZE)
+	pc.encode_float(8, aabb.position.x)
+	pc.encode_float(12, aabb.position.y)
+	pc.encode_float(16, aabb.position.z)
+	pc.encode_float(20, aabb.end.x)
+	pc.encode_float(24, aabb.end.y)
+	pc.encode_float(28, aabb.end.z)
 	
-	var compute_list := _rd.compute_list_begin()
-	_rd.compute_list_bind_compute_pipeline(compute_list,_leaf_cluster_pipeline)
-	_rd.compute_list_bind_uniform_set(compute_list,uniform_set,0)
-	_rd.compute_list_set_push_constant(compute_list,push_constants,push_constants.size())
-	_rd.compute_list_dispatch(compute_list,ceili(float(cluster_count)/256.0),1,1)
-	_rd.compute_list_end()
-	_rd.submit()
-	_rd.sync()
+	_leaf_cluster_stage.set_push_constants(pc)
+	
+	if not _leaf_cluster_stage.dispatch(ceili(float(cluster_count) / 256.0), 1, 1):
+		return BVHStatus.PIPELINE_CREATE_FAILED
+		
 	return BVHStatus.OK
-
+	
 static func generate_leaf_clusters_test(
 	mesh:Mesh,
 	rendering_device: RenderingDevice,
@@ -472,7 +362,7 @@ static func generate_leaf_clusters_test(
 	var status := generator._create_buffers(ctx)
 	if status != BVHStatus.OK:
 		return status
-	status = generator._generate_element_aabbs(ctx)
+	status = generator._generate_element_aabbs_stage(ctx)
 	if status != BVHStatus.OK:
 		return status
 	status = generator._generate_morton_codes(ctx)
@@ -487,35 +377,19 @@ func _sort_morton_codes(
 	temp_key: String = KEY_MORTON_BUFFER_TMP,
 	num_elements: int = -1
 	) -> BVHStatus:
-	if not _radix_pipeline.is_valid():
-		return BVHStatus.PIPELINE_CREATE_FAILED
-	if num_elements <0:
-		num_elements = ctx[KEY_INDEX_COUNT]/3
+	if num_elements < 0:
+		num_elements = ctx[KEY_INDEX_COUNT] / 3
 	ctx[temp_key] = _rd.storage_buffer_create(num_elements*MORTON_ELEMENT_SIZE)
-	var uniforms : Array[RDUniform] = []
+	_radix_stage.set_uniform(1,0,RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER,ctx[morton_key])
+	_radix_stage.set_uniform(1,1,RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER,ctx[temp_key])
+	var pc : PackedByteArray = PackedByteArray()
+	pc.resize(4)
+	pc.encode_u32(0, num_elements)
+
+	_radix_stage.set_push_constants(pc)
 	
-	for buffer in[ctx[morton_key],ctx[temp_key]]:
-		var uniform := RDUniform.new()
-		uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-		uniform.binding = uniforms.size()
-		uniform.add_id(buffer)
-		uniforms.append(uniform)
-	
-	var uniform_set := _rd.uniform_set_create(uniforms,_radix_shader,1)
-	var push_constants := PackedByteArray()
-	push_constants.resize(4)
-	push_constants.encode_u32(0,num_elements)
-	
-	var compute_list := _rd.compute_list_begin()
-	_rd.compute_list_bind_compute_pipeline(compute_list,_radix_pipeline)
-	_rd.compute_list_bind_uniform_set(compute_list,uniform_set,1)
-	_rd.compute_list_set_push_constant(compute_list,push_constants,push_constants.size())
-	_rd.compute_list_dispatch(compute_list,1,1,1)
-	_rd.compute_list_end()
-	
-	_rd.submit()
-	_rd.sync()
-	
+	if not _radix_stage.dispatch(1,1,1):
+		return BVHStatus.PIPELINE_CREATE_FAILED
 	return BVHStatus.OK
 
 static func generate_sort_morton_test(mesh:Mesh,
@@ -527,7 +401,7 @@ static func generate_sort_morton_test(mesh:Mesh,
 	var status := generator._create_buffers(ctx)
 	if status != BVHStatus.OK:
 		return status
-	status = generator._generate_element_aabbs(ctx)
+	status = generator._generate_element_aabbs_stage(ctx)
 	if status != BVHStatus.OK:
 		return status
 	status = generator._generate_morton_codes(ctx)
@@ -549,94 +423,36 @@ static func generate_sort_morton_test(mesh:Mesh,
 	return BVHStatus.OK
 
 func _build_hierarchy(ctx:Dictionary)->BVHStatus:
-	if not _hierarchy_pipeline.is_valid():
-		return BVHStatus.PIPELINE_CREATE_FAILED
-	var uniforms : Array[RDUniform] = []
-	
-	var num_elements : int = ctx[KEY_CLUSTER_COUNT]
-	var total_nodes := num_elements * 2-1
-	
-	ctx[KEY_LBVH_BUFFER] = _rd.storage_buffer_create(
-		total_nodes*LBVH_NODE_SIZE # node size
-	)
-	ctx[KEY_LBVH_CONSTRUCTION_INFO_BUFFER] = _rd.storage_buffer_create(
-		total_nodes*8 # parent + visited count
-	)
-	
-	var morton_uniform := RDUniform.new()
-	morton_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	morton_uniform.binding = 0
-	morton_uniform.add_id(ctx[KEY_CLUSTER_MORTON_BUFFER])
-	uniforms.push_back(morton_uniform)
-	
-	var elements_uniform := RDUniform.new()
-	elements_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	elements_uniform.binding = 1
-	elements_uniform.add_id(ctx[KEY_CLUSTER_ELEMENT_BUFFER])
-	uniforms.push_back(elements_uniform)
-	
-	# output bvh!
-	var lbvh_uniform := RDUniform.new()
-	lbvh_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	lbvh_uniform.binding = 2
-	lbvh_uniform.add_id(ctx[KEY_LBVH_BUFFER])
-	uniforms.push_back(lbvh_uniform)
-	
-	var construction_uniform := RDUniform.new()
-	construction_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	construction_uniform.binding = 3
-	construction_uniform.add_id(ctx[KEY_LBVH_CONSTRUCTION_INFO_BUFFER])
-	uniforms.push_back(construction_uniform)
-	
-	var uniform_set := _rd.uniform_set_create(uniforms,_hierarchy_shader,2) #the original shader uses set 2, why not
-	
-	var push_constants = PackedByteArray()
-	push_constants.resize(8)# NOTE was 8, seems i need multiple of 16
-	push_constants.encode_u32(0,num_elements)
-	push_constants.encode_u32(4,1) # absolute pointers
-	
-	var compute_list := _rd.compute_list_begin()
-	_rd.compute_list_bind_compute_pipeline(compute_list,_hierarchy_pipeline)
-	_rd.compute_list_bind_uniform_set(compute_list,uniform_set,2)
-	_rd.compute_list_set_push_constant(compute_list,push_constants,push_constants.size())
-	_rd.compute_list_dispatch(compute_list,ceili(float(num_elements) / 256.0),1,1)
-	_rd.compute_list_end()
-	_rd.submit()
-	_rd.sync()
+	var num_elements: int = ctx[KEY_CLUSTER_COUNT]
+	var total_nodes: int = num_elements * 2 - 1
+	ctx[KEY_LBVH_BUFFER] = _rd.storage_buffer_create(total_nodes * LBVH_NODE_SIZE)
+	ctx[KEY_LBVH_CONSTRUCTION_INFO_BUFFER] = _rd.storage_buffer_create(total_nodes * LBVH_CONSTRUCTION_INFO_SIZE)
+	_hierarchy_stage.set_uniform(2, 0, RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER,ctx[KEY_CLUSTER_MORTON_BUFFER])
+	_hierarchy_stage.set_uniform(2, 1, RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER,ctx[KEY_CLUSTER_ELEMENT_BUFFER])
+	_hierarchy_stage.set_uniform(2, 2, RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER,ctx[KEY_LBVH_BUFFER])
+	_hierarchy_stage.set_uniform(2, 3, RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER,ctx[KEY_LBVH_CONSTRUCTION_INFO_BUFFER])
+	var pc : PackedByteArray = PackedByteArray()
+	pc.resize(8)
+	pc.encode_u32(0, num_elements)
+	pc.encode_u32(4, 1) # Absolute pointers
+	_hierarchy_stage.set_push_constants(pc)
+	if not _hierarchy_stage.dispatch(ceili(float(num_elements) / 256.0), 1, 1):
+			return BVHStatus.PIPELINE_CREATE_FAILED
+			
 	return BVHStatus.OK
-
 	
 func _build_bounding_boxes(ctx:Dictionary)->BVHStatus:
-
-	var uniforms : Array[RDUniform] = []
-	var num_elements: int = ctx[KEY_CLUSTER_COUNT]	
-	var lbvh_uniform := RDUniform.new()
-	lbvh_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	lbvh_uniform.binding = 0
-	lbvh_uniform.add_id(ctx[KEY_LBVH_BUFFER])
-	uniforms.push_back(lbvh_uniform)
+	var num_elements: int = ctx[KEY_CLUSTER_COUNT]
+	_bb_node_stage.set_uniform(3, 0, RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER,ctx[KEY_LBVH_BUFFER])
+	_bb_node_stage.set_uniform(3, 1, RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER,ctx[KEY_LBVH_CONSTRUCTION_INFO_BUFFER])
+	var pc : PackedByteArray = PackedByteArray()
+	pc.resize(8)
+	pc.encode_u32(0, num_elements)
+	pc.encode_u32(4, 1)
 	
-	var construction_uniform := RDUniform.new()
-	construction_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	construction_uniform.binding = 1
-	construction_uniform.add_id(ctx[KEY_LBVH_CONSTRUCTION_INFO_BUFFER])
-	uniforms.push_back(construction_uniform)
-	
-	var uniform_set := _rd.uniform_set_create(uniforms,_bb_node_shader,3)
-	var push_constants := PackedByteArray()
-	push_constants.resize(8)
-	push_constants.encode_u32(0,num_elements)
-	push_constants.encode_u32(4,1)# absolute pointers
-	
-	var compute_list := _rd.compute_list_begin()
-	_rd.compute_list_bind_compute_pipeline(compute_list,_bb_node_pipeline)
-	_rd.compute_list_bind_uniform_set(compute_list,uniform_set,3)
-	_rd.compute_list_set_push_constant(compute_list,push_constants,push_constants.size())
-	
-	_rd.compute_list_dispatch(compute_list,ceili(float(num_elements)/256.0),1,1)
-	_rd.compute_list_end()
-	_rd.submit()
-	_rd.sync()
+	_bb_node_stage.set_push_constants(pc)
+	if not _bb_node_stage.dispatch(ceili(float(num_elements) / 256.0), 1, 1):
+		return BVHStatus.PIPELINE_CREATE_FAILED
 	return BVHStatus.OK
 	
 # TODO actually make pipeline steps XD
@@ -649,7 +465,7 @@ static func generate_hierarchy_test(mesh:Mesh,
 	var status := generator._create_buffers(ctx)
 	if status != BVHStatus.OK:
 		return status
-	status = generator._generate_element_aabbs(ctx)
+	status = generator._generate_element_aabbs_stage(ctx)
 	if status != BVHStatus.OK:
 		return status
 	status = generator._generate_morton_codes(ctx)
@@ -675,7 +491,7 @@ static func generate_hierarchy_test(mesh:Mesh,
 	status = generator._build_bounding_boxes(ctx)
 	if status != BVHStatus.OK:
 		return status
-	
+		
 	var num_elements : int = ctx[KEY_CLUSTER_COUNT]
 	var leaf_offset := num_elements - 1
 	var lbvh_bytes : PackedByteArray = rendering_device.buffer_get_data(ctx[KEY_LBVH_BUFFER])
@@ -693,10 +509,10 @@ static func generate_hierarchy_test(mesh:Mesh,
 		" max=", node.aabb.end
 		)
 	print("============= Internal Nodes =============")
-
+	
 	for i in range(min(20, num_elements - 1)):
 		var node := MMBvhGeneratorGPU.read_lbvh_node(lbvh_bytes, i)
-
+		
 		print(
 			"node=", i,
 			" left=", node.left,
@@ -704,86 +520,40 @@ static func generate_hierarchy_test(mesh:Mesh,
 			" primitive=", node.primitive
 		)
 	return BVHStatus.OK
-
+	
 func _calculate_node_sizes(ctx)->BVHStatus:
-	if not _node_sizes_pipeline.is_valid():
+	var num_elements: int = ctx[KEY_CLUSTER_COUNT]
+	var node_count: int = num_elements * 2 - 1
+	ctx[KEY_NODE_SIZE_BUFFER] = _rd.storage_buffer_create(node_count * 4)
+	_node_sizes_stage.set_uniform(0, 0, RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER,ctx[KEY_LBVH_BUFFER])
+	_node_sizes_stage.set_uniform(0, 1, RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER,ctx[KEY_NODE_SIZE_BUFFER])
+	var pc : PackedByteArray = PackedByteArray()
+	pc.resize(16)
+	pc.encode_u32(0, node_count)
+	pc.encode_u32(4, ctx[KEY_INDEX_COUNT] / 3)
+	pc.encode_u32(8, LEAF_SIZE)
+	pc.encode_u32(12, int(ctx[KEY_ADD_VERTEX_INFO]))
+	_node_sizes_stage.set_push_constants(pc)
+	
+	if not _node_sizes_stage.dispatch(ceili(float(node_count) / 256.0), 1, 1):
 		return BVHStatus.PIPELINE_CREATE_FAILED
-	var uniforms : Array[RDUniform] = []
-	var num_elements : int = ctx[KEY_CLUSTER_COUNT]
-	var node_count := num_elements*2-1
-	ctx[KEY_NODE_SIZE_BUFFER] = _rd.storage_buffer_create(node_count*4)
-	
-	var lbvh_uniform := RDUniform.new()
-	lbvh_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	lbvh_uniform.binding = 0
-	lbvh_uniform.add_id(ctx[KEY_LBVH_BUFFER])
-	uniforms.push_back(lbvh_uniform)
-	
-	var node_size_uniform := RDUniform.new()
-	node_size_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	node_size_uniform.binding = 1
-	node_size_uniform.add_id(ctx[KEY_NODE_SIZE_BUFFER])
-	uniforms.push_back(node_size_uniform)
-	
-	var uniform_set := _rd.uniform_set_create(
-		uniforms,
-		_node_sizes_shader,
-		0
-	)
-	var push_constants := PackedByteArray()
-	push_constants.resize(16)
-	push_constants.encode_u32(0,node_count)
-	push_constants.encode_u32(4, ctx[KEY_INDEX_COUNT]/3)
-	push_constants.encode_u32(8, LEAF_SIZE)
-	push_constants.encode_u32(12,ctx[KEY_ADD_VERTEX_INFO])
-	var compute_list := _rd.compute_list_begin()
-	_rd.compute_list_bind_compute_pipeline(compute_list,_node_sizes_pipeline)
-	_rd.compute_list_bind_uniform_set(compute_list,uniform_set,0)
-	_rd.compute_list_set_push_constant(compute_list,push_constants,push_constants.size())
-	_rd.compute_list_dispatch(compute_list,ceili(float(node_count)/256),1,1)
-	_rd.compute_list_end()
-	_rd.submit()
-	_rd.sync()
 	return BVHStatus.OK
-
+	
 func _calculate_node_levels(ctx:Dictionary)->BVHStatus:
-	if not _node_levels_pipeline.is_valid():
+	var num_elements: int = ctx[KEY_CLUSTER_COUNT]
+	var total_nodes: int = num_elements * 2 - 1
+	ctx[KEY_NODE_LEVEL_BUFFER] = _rd.storage_buffer_create(total_nodes * 4)
+	_node_levels_stage.set_uniform(0, 0, RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER,ctx[KEY_LBVH_CONSTRUCTION_INFO_BUFFER])
+	_node_levels_stage.set_uniform(0, 1, RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER,ctx[KEY_NODE_LEVEL_BUFFER])
+	var pc := PackedByteArray()
+	pc.resize(8)
+	pc.encode_u32(0, total_nodes)
+	pc.encode_u32(4, 0)
+	_node_levels_stage.set_push_constants(pc)
+	
+	if not _node_levels_stage.dispatch(ceili(float(total_nodes) / 256.0), 1, 1):
 		return BVHStatus.PIPELINE_CREATE_FAILED
-	var num_elements : int = ctx[KEY_CLUSTER_COUNT]
-	var total_nodes := num_elements * 2-1
-	ctx[KEY_NODE_LEVEL_BUFFER] = _rd.storage_buffer_create(total_nodes*4)
-	var uniforms : Array[RDUniform] = []
-	
-	var construction_uniform := RDUniform.new()
-	construction_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	construction_uniform.binding = 0
-	construction_uniform.add_id(ctx[KEY_LBVH_CONSTRUCTION_INFO_BUFFER])
-	uniforms.push_back(construction_uniform)
-	
-	var levels_uniform := RDUniform.new()
-	levels_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	levels_uniform.binding = 1
-	levels_uniform.add_id(ctx[KEY_NODE_LEVEL_BUFFER])
-	uniforms.push_back(levels_uniform)
-	
-	var uniform_set := _rd.uniform_set_create(
-		uniforms,
-		_node_levels_shader,
-		0
-	)
-	var push_constants := PackedByteArray()
-	push_constants.resize(8)
-	push_constants.encode_u32(0,total_nodes)
-	var compute_list := _rd.compute_list_begin()
-	_rd.compute_list_bind_compute_pipeline(compute_list,_node_levels_pipeline)
-	_rd.compute_list_bind_uniform_set(compute_list,uniform_set,0)
-	_rd.compute_list_set_push_constant(compute_list,push_constants,push_constants.size())
-	_rd.compute_list_dispatch(compute_list,ceili(float(total_nodes)/256),1,1)
-	_rd.compute_list_end()
-	_rd.submit()
-	_rd.sync()
 	return BVHStatus.OK
-	
 	
 func _scan_node_sizes(ctx:Dictionary)->BVHStatus:
 	var tri_count : int = ctx[KEY_CLUSTER_COUNT]
@@ -794,77 +564,30 @@ func _scan_node_sizes(ctx:Dictionary)->BVHStatus:
 	return BVHStatus.OK
 
 func _writeout_mm_bvh(ctx:Dictionary)->BVHStatus:
-	if not _writeout_pipeline.is_valid():
+	var num_elements: int = ctx[KEY_CLUSTER_COUNT]
+	var total_nodes: int = num_elements * 2 - 1
+	var node_data_start: int = ctx[KEY_NODE_DATA_START]
+	_writeout_stage.set_uniform(0, 0, RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, ctx[KEY_LBVH_BUFFER])
+	_writeout_stage.set_uniform(0, 1, RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, ctx[KEY_NODE_OFFSET_BUFFER])
+	_writeout_stage.set_uniform(0, 2, RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, ctx[KEY_NODE_LEVEL_BUFFER])
+	_writeout_stage.set_uniform(0, 3, RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, ctx[KEY_VERTEX_BUFFER])
+	_writeout_stage.set_uniform(0, 4, RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, ctx[KEY_INDEX_BUFFER])
+	_writeout_stage.set_uniform(0, 5, RenderingDevice.UNIFORM_TYPE_IMAGE, ctx[KEY_BVH_IMAGE])
+	_writeout_stage.set_uniform(0, 6, RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER, ctx[KEY_MORTON_BUFFER])
+	var pc : PackedByteArray = PackedByteArray()
+	pc.resize(24)
+	pc.encode_u32(0, total_nodes)
+	pc.encode_u32(4, node_data_start)
+	pc.encode_u32(8, ctx[KEY_WIDTH])
+	pc.encode_u32(12, ctx[KEY_INDEX_COUNT] / 3)
+	pc.encode_u32(16, LEAF_SIZE)
+	pc.encode_u32(20, int(ctx[KEY_ADD_VERTEX_INFO]))
+	
+	_writeout_stage.set_push_constants(pc)
+	
+	if not _writeout_stage.dispatch(ceili(float(total_nodes) / 256.0), 1, 1):
 		return BVHStatus.PIPELINE_CREATE_FAILED
-	var num_elements : int = ctx[KEY_CLUSTER_COUNT]
-	var total_nodes := num_elements * 2-1
-	var node_data_start : int = ctx[KEY_NODE_DATA_START]
-	var uniforms : Array[RDUniform] = []
-	
-	var lbvh_uniform := RDUniform.new()
-	lbvh_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	lbvh_uniform.binding = 0
-	lbvh_uniform.add_id(ctx[KEY_LBVH_BUFFER])
-	uniforms.push_back(lbvh_uniform)
-	
-	var offsets_uniform := RDUniform.new()
-	offsets_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	offsets_uniform.binding = 1
-	offsets_uniform.add_id(ctx[KEY_NODE_OFFSET_BUFFER])
-	uniforms.push_back(offsets_uniform)
-	
-	var levels_uniform := RDUniform.new()
-	levels_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	levels_uniform.binding =2
-	levels_uniform.add_id(ctx[KEY_NODE_LEVEL_BUFFER])
-	uniforms.push_back(levels_uniform)
-	
-	var verices_uniform := RDUniform.new()
-	verices_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	verices_uniform.binding =3
-	verices_uniform.add_id(ctx[KEY_VERTEX_BUFFER])
-	uniforms.push_back(verices_uniform)
-	
-	var indices_uniform := RDUniform.new()
-	indices_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	indices_uniform.binding =4
-	indices_uniform.add_id(ctx[KEY_INDEX_BUFFER])
-	uniforms.push_back(indices_uniform)
-	
-
-	var output_uniform := RDUniform.new()
-	output_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_IMAGE
-	output_uniform.binding = 5
-	output_uniform.add_id(ctx[KEY_BVH_IMAGE])
-	uniforms.push_back(output_uniform)
-	
-	var sorted_uniform := RDUniform.new()
-	sorted_uniform.uniform_type = RenderingDevice.UNIFORM_TYPE_STORAGE_BUFFER
-	sorted_uniform.binding = 6
-	sorted_uniform.add_id(ctx[KEY_MORTON_BUFFER])
-	uniforms.push_back(sorted_uniform)
-	
-	var uniform_set := _rd.uniform_set_create(
-		uniforms,
-		_writeout_shader,
-		0
-	)
-	var push_constants := PackedByteArray()
-	push_constants.resize(24)
-	push_constants.encode_u32(0,total_nodes)
-	push_constants.encode_u32(4, node_data_start)
-	push_constants.encode_u32(8, ctx[KEY_WIDTH])
-	push_constants.encode_u32(12, ctx[KEY_INDEX_COUNT]/3)
-	push_constants.encode_u32(16, LEAF_SIZE)
-	push_constants.encode_u32(20,int(ctx[KEY_ADD_VERTEX_INFO]))
-	var compute_list := _rd.compute_list_begin()
-	_rd.compute_list_bind_compute_pipeline(compute_list,_writeout_pipeline)
-	_rd.compute_list_bind_uniform_set(compute_list,uniform_set,0)
-	_rd.compute_list_set_push_constant(compute_list,push_constants,push_constants.size())
-	_rd.compute_list_dispatch(compute_list,ceili(float(total_nodes)/256),1,1)
-	_rd.compute_list_end()
-	_rd.submit()
-	_rd.sync()
+		
 	return BVHStatus.OK
 
 func _allocate_mm_output(ctx:Dictionary)->BVHStatus:
@@ -912,7 +635,8 @@ func _allocate_mm_output(ctx:Dictionary)->BVHStatus:
 # all lbvh steps
 func _generate_lbvh(ctx:Dictionary)-> BVHStatus:
 	var start_time : int = Time.get_ticks_usec()
-	var status := _generate_element_aabbs(ctx)
+	#var status := _generate_element_aabbs(ctx)
+	var status : BVHStatus = _generate_element_aabbs_stage(ctx)
 	print("stage 1: elementwise aabb : %d usec" % (Time.get_ticks_usec()-start_time))
 	if status != BVHStatus.OK:
 		return status
@@ -1009,32 +733,15 @@ func _cleanup(ctx:Dictionary)-> void:
 			if rid.is_valid():
 				_rd.free_rid(rid)
 func cleanup()->void:
-	for rid in [
-		_triangle_aabb_pipeline,
-		_morton_pipeline,
-		_radix_pipeline,
-		_hierarchy_pipeline,
-		_bb_node_pipeline,
-		_node_sizes_pipeline,
-		_writeout_pipeline,
-		_node_levels_pipeline,
-		_leaf_cluster_pipeline
-	]:
-		if rid.is_valid():
-			_rd.free_rid(rid)
-	for rid in [
-		_triangle_aabb_shader,
-		_morton_shader,
-		_radix_shader,
-		_hierarchy_shader,
-		_bb_node_shader,
-		_node_sizes_shader,
-		_writeout_shader,
-		_node_levels_shader,
-		_leaf_cluster_shader
-	]:
-		if rid.is_valid():
-			_rd.free_rid(rid)
+	_triangle_aabb_stage.clear()
+	_morton_stage.clear()
+	_radix_stage.clear()
+	_leaf_cluster_stage.clear()
+	_hierarchy_stage.clear()
+	_bb_node_stage.clear()
+	_node_sizes_stage.clear()
+	_writeout_stage.clear()
+	_node_levels_stage.clear()
 	_prefix_scan.cleanup()
 			
 func _generate(mesh:Mesh,add_vertex_info:bool=true)->ImageTexture:

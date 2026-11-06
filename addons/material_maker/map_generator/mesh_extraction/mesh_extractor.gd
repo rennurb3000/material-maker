@@ -1,27 +1,27 @@
 extends Object
 class_name  MMMeshExtractor
 
-const KEY_VERTICES := "vertices"
-const KEY_INDICES := "indices"
-const KEY_SURFACE_IDS := "surface_ids"
+const KEY_VERTICES : String = "vertices"
+const KEY_INDICES : String = "indices"
+const KEY_SURFACE_IDS : String = "surface_ids"
 const KEY_SCENE_AABB := "scene_aabb"
 
-const KEY_VERTEX_COUNT := "vertex_count"
-const KEY_INDEX_COUNT := "index_count"
+const KEY_VERTEX_COUNT : String = "vertex_count"
+const KEY_INDEX_COUNT : String = "index_count"
 
-const KEY_SURFACE_ID_LUT := "surface_id_lut"
-const KEY_POSITION_LUT := "position_lut"
-const KEY_NORMAL_LUT := "normal_lut"
-const KEY_TANGENT_LUT := "tangent_lut"
-const KEY_COLOR_LUT := "vertex_color_lut"
-const KEY_UV_LUT := "uv_lut"
-const KEY_UV2_LUT := "uv2_lut"
+const KEY_SURFACE_ID_LUT : String = "surface_id_lut"
+const KEY_POSITION_LUT : String = "position_lut"
+const KEY_NORMAL_LUT : String = "normal_lut"
+const KEY_TANGENT_LUT : String = "tangent_lut"
+const KEY_COLOR_LUT : String = "vertex_color_lut"
+const KEY_UV_LUT : String = "uv_lut"
+const KEY_UV2_LUT : String = "uv2_lut"
 
-const HAS_NORMAL := 1 << 0;
-const HAS_TANGENT:= 1 << 1;
-const HAS_COLOR  := 1 << 2;
-const HAS_UV     := 1 << 3;
-const HAS_UV2    := 1 << 4;
+const HAS_NORMAL : int = 1 << 0;
+const HAS_TANGENT: int = 1 << 1;
+const HAS_COLOR  : int = 1 << 2;
+const HAS_UV     : int = 1 << 3;
+const HAS_UV2    : int = 1 << 4;
 
 var _rd : RenderingDevice
 var _shader : RID

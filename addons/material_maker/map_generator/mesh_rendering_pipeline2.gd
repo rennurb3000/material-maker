@@ -97,8 +97,8 @@ func denoise_map(source:MMTexture,size:Vector2i)->MMTexture:
 	compute.in_thread_render_ext([result],size)
 	return result
 	
-func render_map(vertex_shader:String,fragment_shader:String,size:Vector2i,map_mode:int,selected_surface:int = -1,postprocess:Array=[])->MMTexture:
-	if not await set_shader(vertex_shader,fragment_shader):
+func render_map(vertex_shader:String,fragment_shader:String,size:Vector2i,map_mode:int,selected_surface:int = -1,postprocess:Array=[],replaces:Dictionary={})->MMTexture:
+	if not await set_shader(vertex_shader,fragment_shader,replaces):
 		return null
 	set_parameter("map_mode",map_mode)
 	set_parameter("selected_surface",selected_surface)

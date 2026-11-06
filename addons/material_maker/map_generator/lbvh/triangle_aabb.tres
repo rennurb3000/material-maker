@@ -1,7 +1,15 @@
+[gd_resource type="Resource" script_class="TextResource" format=3 uid="uid://blqofcpve3sfq"]
+
+[ext_resource type="Script" uid="uid://bc3eljtuurjsd" path="res://addons/material_maker/engine/text_resource.gd" id="1_o2e2t"]
+
+[resource]
+script = ExtResource("1_o2e2t")
+text = "
 // this creates an aabb per triangle!
 // this matches the struct definition of https://github.com/MircoWerner/VkLBVH/tree/main
-#[compute]
 #version 450
+
+@LBVH_COMMON
 
 layout(local_size_x = 64) in;
 
@@ -10,16 +18,6 @@ layout(set = 0, binding = 0, std430) readonly buffer Vertices{
 };
 layout(set = 0, binding = 1, std430) readonly buffer Indices{
     uint indices[];
-};
-
-struct Element{
-    uint primitiveIdx;
-    float aabbMinX;
-    float aabbMinY;
-    float aabbMinZ;
-    float aabbMaxX;
-    float aabbMaxY;
-    float aabbMaxZ;
 };
 
 layout(set =0,binding = 2,std430) buffer Elements{
@@ -52,3 +50,5 @@ void main() {
     elements[tri].aabbMaxZ = maxAABB.z;
     
 }
+
+"

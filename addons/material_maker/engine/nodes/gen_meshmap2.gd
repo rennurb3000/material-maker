@@ -90,7 +90,7 @@ func _render_current_map()->void:
 	if data == null:
 		return
 	var attributes := MMMeshManager.get_instance().get_attributes(data.mesh_path)
-	if attributes.is_empty() or not attributes.has(MMMeshExtractor.KEY_INDICES):
+	if not attributes.has(MMMeshExtractor.KEY_INDICES):
 		return
 	var _pipeline = MMMeshRenderingPipeline2.new()
 	_pipeline.setup(mesh,attributes)
