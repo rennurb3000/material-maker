@@ -39,6 +39,9 @@ func get_parameter_defs() -> Array:
 				{name="Hit Normal",value=6},
 				{name="Ambient Occlusion",value=7},
 				{name="Tangent Normal",value=8},
+				{name="Thickness",value=9},
+				{name="Distance",value=10},
+				{name="Curvature",value=11}
 				]
 		},
 		{
@@ -65,7 +68,30 @@ func get_parameter_defs() -> Array:
 			default = 10.0,
 			min = 0.0,
 			max = 100.0,
-		}
+		},
+		{
+			name = "scale_aabb",
+			type = "boolean",
+			default = false,
+		},
+		{
+			name = "surface_filter",
+			type = "float",
+			default = -1.0,
+			min = -1.0,
+			max = 32.0,
+			step = 1.0,
+		},
+		{
+			name = "dilate",
+			type = "boolean",
+			default = true,
+		},
+		{
+			name = "denoise",
+			type = "boolean",
+			default = false,
+		},
 	]
 func set_parameter(n : String, v) -> void:
 	super.set_parameter(n,v)
@@ -126,7 +152,7 @@ func _get_bake_context()->Dictionary:
 func _get_shader_code(uv, _output_index, context) -> ShaderCode:
 	var rv := ShaderCode.new()
 	rv.output_type = get_output_defs()[_output_index].type
-	var color : Color = get_parameter("color")
+	var color : Color = Color.TOMATO # lol
 	
 	var genname = "o%d" % get_instance_id()
 	var variant = context.get_variant(self,uv)
@@ -181,6 +207,7 @@ func bake_maps():
 		6: await bake_hit_normal(bake_size)
 		7: await bake_ao(bake_size)
 		8: await bake_tangent_space_normal(bake_size)
+		_ : push_error("not yet implemented")
 
 func render_input_texture(input_index : int,size:Vector2i)->MMTexture:
 	var source = get_source(input_index)
@@ -237,11 +264,52 @@ func bake_attribute(attribute_key:String,output_name:String,bake_size:Vector2i)-
 	await add_input_texture(pipeline,"ray_dir",2,bake_size)
 	
 	var replaces :Dictionary ={}
+	
+	# this is injected in the ray hit detection:
+	# if the surface does not match, it is ignored, and the ray travels further
+	replaces["@SURFACE_FILTER"] = ""
+	var surface_filter: int = int(get_parameter("surface_filter"))
+	if surface_filter >=0:
+		var surface_lut: MMTexture = _wrap_texture(attributes.get(MMMeshExtractor.KEY_SURFACE_ID_LUT))
+		if surface_lut == null:
+			push_error("Surface ID LUT missing")
+			return
+		pipeline.add_parameter_or_texture("surface_id_lut", "sampler2D", surface_lut)
+		replaces["@SURFACE_FILTER"] = """
+			int vid = int(hit_info.x);
+			ivec2 lut_size = textureSize(surface_id_lut, 0);
+			ivec2 lut_coord = ivec2(vid %% lut_size.x, vid / lut_size.x);
+			int surface_id = int(round(texelFetch(surface_id_lut, lut_coord, 0).r));
+			if (surface_id != %d) {
+				continue;
+			}
+			""" % surface_filter
+	
+	# transforms normalized ray origins into the BVH coordinate system
+	# not needed for meshmap or meshmap2!
+	replaces["@AABB_TRANSFORM"] = ""
+	if get_parameter("scale_aabb"):
+		var aabb : AABB = current_mesh.get_aabb()
+		pipeline.add_parameter_or_texture("aabb_min", "vec3", aabb.position)
+		pipeline.add_parameter_or_texture("aabb_size", "vec3", aabb.size)
+		replaces["@AABB_TRANSFORM"] = """
+			int offset_to_nodes = int(get_data(0).x);
+			int root_offset = int(get_data(1).x) + offset_to_nodes;
+			vec3 aabb_min = get_data(root_offset).xyz;
+			vec3 aabb_max = get_data(root_offset + 1).xyz;
+			vec3 aabb_size = aabb_max - aabb_min;
+			origin = origin * aabb_size + aabb_min;
+		"""
+	
+	# injects the offset map, when no offset map is set, 
+	# we use a constant
 	if await add_input_texture(pipeline,"offset_map",3,bake_size):
 		replaces["@OFFSET_EXPR"]= "texture(offset_map,uv).r"
 	else:
 		replaces["@OFFSET_EXPR"]= "1.0"
 
+	# injects the mask: when the mask value of this uv coordinate is <0.5,
+	# the output is set to 0,0,0,0 (transparent, ignored)
 	if await add_input_texture(pipeline,"mask",4,bake_size):
 		replaces["@MASK_EXPR"]= "texture(mask,uv).r"
 	else:
@@ -342,6 +410,16 @@ func bake_attribute(attribute_key:String,output_name:String,bake_size:Vector2i)-
 	baked_map = MMTexture.new()
 	await pipeline.render(bake_size,MMRenderingPipeline.TEXTURE_TYPE_RGBA32F,baked_map)
 	
+	var postprocess : Array = []
+	if get_parameter("dilate"):
+		postprocess.append("dilate")
+	if get_parameter("denoise"):
+		postprocess.append("denoise")
+	
+	if not postprocess.is_empty():
+		var filters : MMMeshRenderingPipeline2 = MMMeshRenderingPipeline2.new()
+		baked_map = await mm_renderer.thread_run(filters._postprocess,[baked_map,bake_size,postprocess])
+	
 	mm_deps.dependency_update(get_texture_parameter_name("output"),baked_map,true)
 	notify_output_change(0)
 		
@@ -369,6 +447,10 @@ func bake_hit_normal(bake_size:Vector2i):
 func bake_tangent_space_normal(bake_size:Vector2i):
 	await bake_attribute(MMMeshExtractor.KEY_NORMAL_LUT,"tangent_normal",bake_size)
 func bake_thickness():
+	pass
+func bake_distance():
+	pass
+func bake_curvature():
 	pass
 func bake_ao(bake_size:Vector2i):
 	await bake_attribute(MMMeshExtractor.KEY_NORMAL_LUT,"ambient_occlusion",bake_size)

@@ -140,6 +140,7 @@ float intersects_bvh(vec3 ray_start, vec3 ray_dir, out vec3 normal_hit, out ivec
 						tri_a, tri_b, tri_c
 					);
 					if(tri_t != -1.0) {
+						@SURFACE_FILTER
 						if(tri_t < t) {
 							tri[0] = tri_a;
 							tri[1] = tri_b;
@@ -260,6 +261,7 @@ float rand(vec2 co){
 
 void main() {
 	vec3 origin = texture(ray_origin,uv).rgb;
+	@AABB_TRANSFORM
 	vec3 dir = normalize(texture(ray_dir,uv).rgb);
 	float offset = @OFFSET_EXPR;
 	float m = @MASK_EXPR;

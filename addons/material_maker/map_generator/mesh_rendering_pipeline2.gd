@@ -50,7 +50,7 @@ func setup(mesh_data:Mesh,mesh_attributes:Dictionary)->void:
 func _postprocess(source: MMTexture, size: Vector2i, steps: Array)->MMTexture:
 	var texture := source
 	for step in steps:
-		match step in steps:
+		match step:
 			"dilate":
 				texture = dilate_map(texture,size,size.x/4)
 			"denoise":
