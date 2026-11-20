@@ -5,6 +5,9 @@ var _manager : MMMeshManager
 var projected_map : MMTexture = null
 # idea: similar to bake node, but shoot rays in the direction of the "patch"
 # if it hits, the uv of the patch will be written, or mask = 0
+# a little NOTE for me, since it might be the base for painting:
+# use a job queue from the physics process or frame to the process to buffer draw commands
+# dispatch in the process, but take the list of drawn commands 
 const SIZES := [256,512,1024,2048,4096]
 
 const VERTEX_SHADER := "res://addons/material_maker/map_generator/mesh_extraction/meshmap2_vertex.tres"

@@ -1,4 +1,10 @@
-#[compute]
+[gd_resource type="Resource" script_class="TextResource" format=3 uid="uid://dnsw83xxe8m42"]
+
+[ext_resource type="Script" uid="uid://bc3eljtuurjsd" path="res://addons/material_maker/engine/text_resource.gd" id="1_o2e2t"]
+
+[resource]
+script = ExtResource("1_o2e2t")
+text = "
 #version 450
 layout(local_size_x = 256) in;
 layout(set = 0,binding = 0,std430) readonly buffer InputPositions
@@ -122,4 +128,4 @@ void main() {
             pc.vertex_offset + index;
     }
 }
-
+"

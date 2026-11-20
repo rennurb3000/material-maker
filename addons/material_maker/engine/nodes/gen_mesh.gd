@@ -11,7 +11,10 @@ func _ready() -> void:
 	super._ready()
 	_manager = MMMeshManager.get_instance()
 	_manager.mesh_changed.connect(on_mesh_changed)
-	_set_mesh(get_parameter("mesh"))
+	if get_parameter("use_graph_mesh_input"):
+		_set_graph_mesh.call_deferred()
+	else:
+		_set_mesh(get_parameter("mesh"))
 
 func _exit_tree() -> void:
 	if _manager != null:
@@ -46,15 +49,18 @@ func get_parameter_defs() -> Array:
 	]
 func get_output_defs(_show_hidden : bool = false) -> Array:
 	return[{name="mesh",type="mesh",shortdesc="Mesh"}]
+	
 func set_parameter(n : String, v) -> void:
 	super.set_parameter(n,v)
 	if _manager == null:
 		return
-	if n=="mesh" or n == "use_graph_mesh_input":
-		if get_parameter("use_graph_mesh_input"):
-			_set_graph_mesh()
-		else:
-			_set_mesh(v)
+	if n!="mesh" and n != "use_graph_mesh_input":
+		return
+		
+	if get_parameter("use_graph_mesh_input"):
+		_set_graph_mesh()
+	else:
+		_set_mesh(get_parameter("mesh"))
 			
 func _set_graph_mesh()->void:
 	var graph := get_parent() as MMGenGraph

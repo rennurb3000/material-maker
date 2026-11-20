@@ -10,7 +10,7 @@ func test_triangle_aabbs():
 	assert_not_null(mesh)
 	var rd := RenderingServer.create_local_rendering_device()
 	var ctx := {}
-	var status = MMBvhGeneratorGPU.generate_triangle_aabbs_test(mesh,rd,ctx)
+	var status = MMLBVHValidation.generate_triangle_aabbs_test(mesh,rd,ctx)
 	assert_eq(status,MMBvhGeneratorGPU.BVHStatus.OK)
 	var gpu_data := rd.buffer_get_data(ctx[MMBvhGeneratorGPU.KEY_ELEMENT_BUFFER])
 	var rng := RandomNumberGenerator.new()
@@ -18,7 +18,7 @@ func test_triangle_aabbs():
 	var triangle_count = ctx[MMBvhGeneratorGPU.KEY_INDICES].size()/3
 	for i in SAMPLE_COUNT:
 		var triangle := rng.randi_range(0,triangle_count-1)
-		var expected := MMBvhGeneratorGPU.calculate_triangle_aabb_cpu(ctx[MMBvhGeneratorGPU.KEY_VERTICES],ctx[MMBvhGeneratorGPU.KEY_INDICES],triangle)
+		var expected := MMLBVHValidation.calculate_triangle_aabb_cpu(ctx[MMBvhGeneratorGPU.KEY_VERTICES],ctx[MMBvhGeneratorGPU.KEY_INDICES],triangle)
 		var offset := triangle*28
 		var primitive := gpu_data.decode_u32(offset+0)
 		var gpu_min := Vector3(
@@ -45,7 +45,7 @@ func test_morton_codes():
 	assert_not_null(mesh)
 	var rd := RenderingServer.create_local_rendering_device()
 	var ctx := {}
-	var status := MMBvhGeneratorGPU.generate_morton_codes_test(mesh,rd,ctx)
+	var status := MMLBVHValidation.generate_morton_codes_test(mesh,rd,ctx)
 	assert_eq(status,MMBvhGeneratorGPU.BVHStatus.OK)
 	var gpu_data := rd.buffer_get_data(ctx[MMBvhGeneratorGPU.KEY_MORTON_BUFFER])
 	var rng := RandomNumberGenerator.new()
@@ -53,12 +53,12 @@ func test_morton_codes():
 	var triangle_count : int = ctx[MMBvhGeneratorGPU.KEY_INDICES].size()/3
 	for i in SAMPLE_COUNT:
 		var triangle := rng.randi_range(0,triangle_count-1)
-		var triangle_aabb := MMBvhGeneratorGPU.calculate_triangle_aabb_cpu(
+		var triangle_aabb := MMLBVHValidation.calculate_triangle_aabb_cpu(
 			ctx[MMBvhGeneratorGPU.KEY_VERTICES],
 			ctx[MMBvhGeneratorGPU.KEY_INDICES],
 			triangle
 		)
-		var expected := MMBvhGeneratorGPU.calculate_morton_code_cpu(triangle_aabb,ctx[MMBvhGeneratorGPU.KEY_SCENE_AABB])
+		var expected := MMLBVHValidation.calculate_morton_code_cpu(triangle_aabb,ctx[MMBvhGeneratorGPU.KEY_SCENE_AABB])
 		var offset := triangle * 8
 		var gpu_morton := gpu_data.decode_u32(offset)
 		var gpu_primitive := gpu_data.decode_u32(offset+4)
@@ -71,7 +71,7 @@ func test_radix_sort_morton_codes():
 	assert_not_null(mesh)
 	var rd := RenderingServer.create_local_rendering_device()
 	var ctx := {}
-	var status := MMBvhGeneratorGPU.generate_sort_morton_test(mesh,rd,ctx)
+	var status := MMLBVHValidation.generate_sort_morton_test(mesh,rd,ctx)
 	assert_eq(status,MMBvhGeneratorGPU.BVHStatus.OK)
 	var gpu_data := rd.buffer_get_data(ctx[MMBvhGeneratorGPU.KEY_MORTON_BUFFER])
 	var rng := RandomNumberGenerator.new()
@@ -100,7 +100,7 @@ func test_build_hierarchy():
 	var rd := RenderingServer.create_local_rendering_device()
 	var ctx := {}
 	var start_time  = Time.get_ticks_usec()
-	var status := MMBvhGeneratorGPU.generate_hierarchy_test(mesh,rd,ctx)
+	var status := MMLBVHValidation.generate_hierarchy_test(mesh,rd,ctx)
 	print("execution_time %f" %(Time.get_ticks_usec()-start_time))
 	assert_eq(status,MMBvhGeneratorGPU.BVHStatus.OK)
 	var node_data := rd.buffer_get_data(ctx[MMBvhGeneratorGPU.KEY_LBVH_BUFFER])
@@ -108,17 +108,17 @@ func test_build_hierarchy():
 	var cluster_count: int = ctx[MMBvhGeneratorGPU.KEY_CLUSTER_COUNT]
 	var node_count := cluster_count * 2 - 1
 	var construction_data := rd.buffer_get_data(ctx[MMBvhGeneratorGPU.KEY_LBVH_CONSTRUCTION_INFO_BUFFER])
-	var construction = MMBvhGeneratorGPU.read_lbvh_construction_infos(construction_data)
+	var construction = MMLBVHValidation.read_lbvh_construction_infos(construction_data)
 	#var root := _read_node(node_data,0)
-	var nodes = MMBvhGeneratorGPU.read_lbvh_nodes(node_data)
+	var nodes = MMLBVHValidation.read_lbvh_nodes(node_data)
 	assert_eq(nodes.size(),node_count)
 	assert_eq(construction.size(),node_count)
 
-	assert_true(MMBvhGeneratorGPU.validate_hierarchy(nodes,construction,cluster_count),"hierarchy failed")
+	assert_true(MMLBVHValidation.validate_hierarchy(nodes,construction,cluster_count),"hierarchy failed")
 	
 	var visited := {}
-	MMBvhGeneratorGPU.traverse_lbvh_cpu(nodes,0,
-	func(idx:int,node:MMBvhGeneratorGPU.LBVHNode):
+	MMLBVHValidation.traverse_lbvh_cpu(nodes,0,
+	func(idx:int,node:MMLBVHValidation.LBVHNode):
 		assert_false(visited.has(idx), "cycle detected at node %d")
 		visited[idx]=true
 		if (node.left == 0) and(node.right == 0):
@@ -139,7 +139,7 @@ func test_build_hierarchy():
 			
 			for i in count:
 				var triangle_id := sorted_morton.decode_u32((first + i) * 8 + 4)
-				var triangle_aabb := MMBvhGeneratorGPU.calculate_triangle_aabb_cpu(
+				var triangle_aabb := MMLBVHValidation.calculate_triangle_aabb_cpu(
 					ctx[MMBvhGeneratorGPU.KEY_VERTICES],
 					ctx[MMBvhGeneratorGPU.KEY_INDICES],
 					triangle_id
@@ -182,7 +182,7 @@ func test_leaf_clusters() -> void:
 	var mesh := load("res://material_maker/meshes/suzanne.obj") as ArrayMesh
 	assert_not_null(mesh)
 	var rd := RenderingServer.create_local_rendering_device()
-	var status := MMBvhGeneratorGPU.generate_leaf_clusters_test(
+	var status := MMLBVHValidation.generate_leaf_clusters_test(
 		mesh, rd, ctx
 	)
 	assert_eq(status, MMBvhGeneratorGPU.BVHStatus.OK)
@@ -217,7 +217,7 @@ func test_leaf_clusters() -> void:
 			var sorted_idx := first + i
 			var triangle_id := sorted_morton.decode_u32(sorted_idx * 8 + 4)
 
-			var triangle_aabb := MMBvhGeneratorGPU.calculate_triangle_aabb_cpu(
+			var triangle_aabb := MMLBVHValidation.calculate_triangle_aabb_cpu(
 				vertices, indices, triangle_id
 			)
 
@@ -252,7 +252,7 @@ func test_leaf_clusters() -> void:
 		assert_almost_eq(actual_max.z, expected_aabb.end.z, 0.0001)
 
 		# Morton code of the merged cluster AABB
-		var expected_morton := MMBvhGeneratorGPU.calculate_morton_code_cpu(
+		var expected_morton := MMLBVHValidation.calculate_morton_code_cpu(
 			expected_aabb, scene_aabb
 		)
 
@@ -271,7 +271,8 @@ func test_mm_bvh_create():
 	var mesh := load("res://material_maker/meshes/suzanne.obj") as ArrayMesh
 	assert_not_null(mesh)
 	var rd := RenderingServer.create_local_rendering_device()
-	var bvh_gpu = MMBvhGeneratorGPU.generate(mesh,false,rd)
+	var extractor: MMMeshExtractor = MMMeshExtractor.new(rd)
+	var bvh_gpu = MMBvhGeneratorGPU.generate(mesh,false,rd,extractor.extract_gpu)
 	assert_not_null(bvh_gpu)
 	var bvh_cpu = MMBvhGenerator.generate(mesh,true)
 	assert_not_null(bvh_cpu)
@@ -279,3 +280,6 @@ func test_mm_bvh_create():
 	bvh_gpu.get_image().save_png("gpu_test.png")
 	MMBVHDebugUtils.write_graphviz(bvh_cpu,"test_bvhcpu.dot")
 	bvh_cpu.get_image().save_png("cpu_test.png")
+	MMBvhGeneratorGPU.get_instance(rd).cleanup()
+	extractor.cleanup()
+	rd.free()

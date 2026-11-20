@@ -1,7 +1,6 @@
 extends MMPipeline
 class_name MMComputeShader
 
-
 class OutputTexture:
 	extends RefCounted
 	
@@ -116,6 +115,7 @@ func get_parameters() -> Dictionary:
 		rv[t] = input_textures[input_texture_indexes[t]].texture
 	return rv
 
+
 func render_loop(rd : RenderingDevice, size : Vector2i, chunk_height : int, uniform_set_0 : RID, uniform_set_1 : RID, uniform_set_2 : RID, uniform_set_4 : RID):
 	var y : int = 0
 	var loop_parameters_values : PackedByteArray = PackedByteArray()
@@ -154,16 +154,11 @@ func render_loop(rd : RenderingDevice, size : Vector2i, chunk_height : int, unif
 			rd.compute_list_bind_uniform_set(compute_list, uniform_set_4, 4)
 		
 		#print("Dispatching compute list")
-		print("3: dispatch")
 		rd.compute_list_dispatch(compute_list, (size.x+local_size-1)/local_size, h, 1)
-		print("4: dispatch completed")
 		rd.compute_list_end()
-		print("5: compute list ended")
 		#print("Rendering "+str(self))
 		rd.submit()
-		print("6: submitted")
 		rd.sync()
-		print("7: synchronized")
 		rids.free_rids(rd)
 		
 		#print("End rendering %d-%d (%dms)" % [ y, y+h, render_time ])

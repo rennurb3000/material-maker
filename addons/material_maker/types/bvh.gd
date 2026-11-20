@@ -5,7 +5,9 @@ var mesh_path: String
 var bvh:
 	get:
 		return MMMeshManager.get_instance().get_bvh(mesh_path)
-var attributes : Dictionary = {}
+var attributes : Dictionary:
+	get:
+		return MMMeshManager.get_instance().get_attributes(mesh_path)
 
 func serialize()->Dictionary:
 	return{

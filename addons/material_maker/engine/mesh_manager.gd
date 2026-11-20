@@ -30,7 +30,7 @@ func update_backend()-> void:
 	if not mesh_extract.is_valid():
 		print("using cpu extractor!")
 		mesh_extract = _extractor.extract_cpu
-	bvh_generate = (MMBvhGeneratorGPU.generate.bind(true, _rd) if use_gpu_bvh else MMBvhGenerator.generate.bind(true) )
+	bvh_generate = (MMBvhGeneratorGPU.generate.bind(true, _rd,mesh_extract) if use_gpu_bvh else MMBvhGenerator.generate.bind(true) )
 
 func _init() -> void:
 	update_backend()
@@ -80,34 +80,20 @@ func _extract_mesh(path:String)->Dictionary:
 	var extracted : Dictionary = mesh_extract.call(mesh)
 	if extracted.is_empty():
 		return {}
-		
-	if not extracted.has(MMMeshExtractor.KEY_POSITION_LUT):
-		return extracted
-	var attributes := {}
-	attributes["indices"] = _rd.buffer_get_data(extracted[MMMeshExtractor.KEY_INDICES]).to_int32_array()
-	attributes["index_count"] = extracted[MMMeshExtractor.KEY_INDEX_COUNT]
-	var width:int = extracted["lut_width"]
-	var height:int = extracted["lut_height"]
-	var lut_keys :=[
-		MMMeshExtractor.KEY_POSITION_LUT,
-		MMMeshExtractor.KEY_NORMAL_LUT,
-		MMMeshExtractor.KEY_TANGENT_LUT,
-		MMMeshExtractor.KEY_COLOR_LUT,
-		MMMeshExtractor.KEY_UV_LUT,
-		MMMeshExtractor.KEY_UV2_LUT,
-		MMMeshExtractor.KEY_SURFACE_ID_LUT
-	]
-	for key in lut_keys:
-		var rid:RID = extracted[key]
-		var data:= _rd.texture_get_data(rid,0)
-		var image := Image.create_from_data(width,height,false,Image.FORMAT_RGBAF,data)
-		attributes[key] = ImageTexture.create_from_image(image)
-	# TODO create a rid cleanup function
-	for rid in extracted.values():
-		if rid is RID and rid.is_valid():
-			# get rid of it hehe
-			_rd.free_rid(rid)
+	var attributes : Dictionary = {}
+	var indices : Variant = extracted[MMMeshExtractor.KEY_INDICES]
+	if indices is RID :
+		attributes["indices"] = _rd.buffer_get_data(indices).to_int32_array()
+	else:
+		attributes["indices"] = indices
+	attributes ["index_count"] = extracted[MMMeshExtractor.KEY_INDEX_COUNT]
+	for key:String in MMMeshExtractor.LUT_KEYS:
+		attributes[key] = MMMeshExtractor.get_lut_texture(extracted,key,_rd)
+	for value : Variant in extracted.values():
+		if value is RID and value.is_valid():
+			_rd.free_rid(value)
 	return attributes
+	
 func update_mesh(path:String,mesh:ArrayMesh)->void:
 	if not _cache.has(path):
 		return

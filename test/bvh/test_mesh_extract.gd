@@ -94,6 +94,7 @@ func test_exctract_gpu_lbvh():
 	print("extracted %d indices" %extracted[MMMeshExtractor.KEY_INDEX_COUNT])
 	var ctx = {}
 	var status := generator._create_buffers_from_extraction(ctx,extracted)
+	ctx[MMBvhGeneratorGPU.KEY_ADD_VERTEX_INFO] = true
 	assert_eq(status,MMBvhGeneratorGPU.BVHStatus.OK)
 	
 	if status == MMBvhGeneratorGPU.BVHStatus.OK:
