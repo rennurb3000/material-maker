@@ -2,14 +2,25 @@
 extends MMGenBase
 class_name MMGenCustomBake
 
+# NOTE
+# i got problems with an attached buffer between the input maps and the
+# bake node on startup 
+# recursively searching for the mesh loader node (is output ready) helped a bit
+# to check if the texture is actually ready 
 
 var current_vertex_pos_lut :MMTexture = null
 var world_pos_texture : MMTexture
 
 var baked_map : MMTexture
-		
+var _baking : bool = false
+var _rebake_pending : bool = false
+
 func _ready() -> void:
 	super._ready()
+
+func source_changed(input_index : int) -> void:
+	print("BAKE SOURCE CHANGED: ", get_instance_id(), " input=", input_index)
+	call_deferred("_request_rebake")
 
 func get_type() -> String:
 	return "bake"
@@ -160,12 +171,11 @@ func _get_shader_code(uv, _output_index, context) -> ShaderCode:
 	
 	if variant == -1:
 		variant = context.get_variant(self, uv)
-
+		print("Bake shader requested: ", get_instance_id()," map=", baked_map)
 		if baked_map != null:
 			var texture_name = get_texture_parameter_name("output")
 			rv.add_uniform(texture_name,"sampler2D",baked_map)
-
-	
+			
 			if rv.output_type == "f":
 				rv.code = "float %s_%d = texture(%s, %s).r;\n" % [genname, variant, texture_name, uv]
 				rv.output_values.f = "%s_%d" % [genname, variant]
@@ -214,6 +224,12 @@ func render_input_texture(input_index : int,size:Vector2i)->MMTexture:
 	if source == null:
 		print("woot2")
 		return null
+	
+	if source.generator is MMGenMeshMap2:
+		var map : MMGenMeshMap2 = source.generator
+		if map.current_map == null:
+			return null
+	
 	return await source.generator.render_output_to_texture(
 		source.output_index,
 		size
@@ -420,6 +436,7 @@ func bake_attribute(attribute_key:String,output_name:String,bake_size:Vector2i)-
 		var filters : MMMeshRenderingPipeline2 = MMMeshRenderingPipeline2.new()
 		baked_map = await mm_renderer.thread_run(filters._postprocess,[baked_map,bake_size,postprocess])
 	
+	print("Bake finished: ", get_instance_id()," map=", baked_map," rid=", baked_map.rid.is_valid())
 	mm_deps.dependency_update(get_texture_parameter_name("output"),baked_map,true)
 	notify_output_change(0)
 		
@@ -429,7 +446,35 @@ func bake_world_position(bake_size:Vector2i):
 	await bake_attribute(MMMeshExtractor.KEY_POSITION_LUT,"world_position",bake_size)
 	
 func _request_rebake()->void:
-	await bake_maps()
+	if _baking:
+		_rebake_pending = true
+		return
+	var ready: bool = is_output_ready(0)
+	print("BAKE REQUEST: ", get_instance_id(), " ready=", ready)
+
+	if not ready:
+		for i: int in range(get_input_defs().size()):
+			var source: OutputPort = get_source(i)
+			if source == null:
+				continue
+			print(
+				"  input=", i,
+				" source=", source.generator.name,
+				" type=", source.generator.get_type(),
+				" ready=", source.generator.is_output_ready(source.output_index)
+			)
+	if not is_output_ready(0):
+		return
+		
+	_baking = true
+	while true:
+		_rebake_pending = false
+		await bake_maps()
+		if not _rebake_pending:
+			break
+		if not is_output_ready(0):
+			break
+	_baking = false
 
 func bake_world_normal(bake_size:Vector2i):
 	await bake_attribute(MMMeshExtractor.KEY_NORMAL_LUT,"world_normal",bake_size)

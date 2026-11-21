@@ -144,6 +144,7 @@ func get_bvh(path:String):
 	if not _cache.has(path):
 		return null
 	var entry:Dictionary =_cache[path]
+	print("BVH requested: ", path)
 	if entry["bvh"]==null:
 		entry["bvh"] = bvh_generate.call(entry["mesh"])
 	return entry["bvh"]

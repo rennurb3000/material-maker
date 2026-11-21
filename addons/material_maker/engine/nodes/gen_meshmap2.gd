@@ -12,11 +12,11 @@ const MESH_MAPS : Array[Dictionary] = [
 	{name="Surface ID",output_type="f",attribute = MMMeshExtractor.KEY_SURFACE_ID_LUT},
 	{name="UV Mask",output_type="f",attribute="uv_mask"},
 ]
+signal map_ready # TODO review 
 var current_map : MMTexture = null
 #var _pipeline : MMMeshRenderingPipeline2 = null
 var _updating := false
 var _update_pending := false
-
 func _ready() -> void:
 	super._ready()
 
@@ -50,7 +50,7 @@ func set_parameter(n : String, v) -> void:
 	super.set_parameter(n,v)
 	if n in ["map","surface","map_size"]:
 		update_map()
-		notify_output_change(0)
+		#notify_output_change(0)
 
 func source_changed(input_index : int) -> void:
 	update_map()
@@ -78,6 +78,11 @@ func update_map()->void:
 		if not _update_pending:
 			break
 	_updating = false
+	#map_ready.emit()
+	notify_output_change(0)
+
+func is_output_ready(output_index: int)->bool:
+	return not _updating and current_map != null and super.is_output_ready(output_index)
 
 func _render_current_map()->void:
 	var mesh := get_current_mesh()
@@ -103,8 +108,9 @@ func _render_current_map()->void:
 	var postprocess := definition.get("postprocess",[])
 	var size = [256,512,1024,2048,4096][int(get_parameter("map_size"))]
 	current_map = await  _pipeline.render_map(vertex_shader,fragment_shader,Vector2i(size,size),mode,int(get_parameter("surface")),postprocess)
-	notify_output_change(0)
+	print("MeshMap2 render finished: ", get_instance_id())
 	mm_deps.dependency_update(get_texture_parameter_name(),current_map,true)
+	#notify_output_change(0)
 
 func get_texture_parameter_name() ->String:
 		return "meshmap2_%d"%get_instance_id()
@@ -119,6 +125,7 @@ func _get_shader_code(uv, _output_index, context) -> ShaderCode:
 		variant = context.get_variant(self,uv)
 		variable = "meshmap2_%d_%d"%[get_instance_id(),variant]
 		var texture_name := get_texture_parameter_name()
+		print("MeshMap2 shader requested: ",get_instance_id()," updating=", _updating," current_map=", current_map)
 		rv.add_uniform(texture_name,"sampler2D",current_map)
 		var value := "texture(%s,%s).rgb"%[texture_name,uv]
 		if output_type == "f":
@@ -126,4 +133,7 @@ func _get_shader_code(uv, _output_index, context) -> ShaderCode:
 		rv.code = "%s %s = %s;\n"%[mm_io_types.types[output_type].type,variable,value]
 	rv.output_values[output_type]=variable
 	return rv
+	
+func _serialize(data: Dictionary) -> Dictionary:
+	return data
 	

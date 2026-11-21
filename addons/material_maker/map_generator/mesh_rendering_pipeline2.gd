@@ -10,7 +10,7 @@ func draw_list_extra_setup(rd : RenderingDevice,
 							rids : RIDs):
 	if attributes == null:
 		push_error("no attributes set")
-		
+	assert(attributes.has(MMMeshExtractor.KEY_INDICES), "Mesh pipeline: indices missing")
 	var indices : PackedInt32Array =  attributes["indices"]
 	var index_buffer := rd.index_buffer_create(indices.size(),RenderingDevice.INDEX_BUFFER_FORMAT_UINT32,indices.to_byte_array())
 	var index_array:= rd.index_array_create(index_buffer,0,indices.size())
@@ -23,7 +23,8 @@ func draw_list_extra_setup(rd : RenderingDevice,
 	
 func setup(mesh_data:Mesh,mesh_attributes:Dictionary)->void:
 	mesh = mesh_data
-	attributes = mesh_attributes
+	# fixes a race condition, when switching to graph mesh in mesh loader
+	attributes = mesh_attributes.duplicate()
 	
 	var lut_names := [
 		MMMeshExtractor.KEY_POSITION_LUT,

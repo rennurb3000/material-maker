@@ -65,10 +65,13 @@ func set_parameter(n : String, v) -> void:
 func _set_graph_mesh()->void:
 	var graph := get_parent() as MMGenGraph
 	if graph == null:
+		_clear_mesh()
 		return
-	var mesh := graph.get_current_mesh() as ArrayMesh
+	var mesh : ArrayMesh = graph.get_current_mesh() as ArrayMesh
 	if mesh == null:
+		_clear_mesh()
 		return
+		
 	var path := "graph://%d" %graph.get_instance_id()
 	if  path  == _mesh_path:
 		_manager.update_mesh(path,mesh)
@@ -79,7 +82,15 @@ func _set_graph_mesh()->void:
 			_manager.release_mesh(_mesh_path,self)
 		_mesh_path = path
 	notify_output_change(0)
+
+func _clear_mesh()->void:
+	if _mesh_path.is_empty():
+		return
+	_manager.release_mesh(_mesh_path,self)
+	_mesh_path = ""
+	notify_output_change(0)
 	
+
 func on_graph_mesh_changed()->void:
 	if get_parameter("use_graph_mesh_input"):
 		_set_graph_mesh()
@@ -87,12 +98,19 @@ func on_graph_mesh_changed()->void:
 func _set_mesh(path:String)->void:
 	if path == _mesh_path:
 		return
-	if not path.is_empty():
-		if _manager.acquire_mesh(path,self)==null:
-			return
+	if path.is_empty():
+		_clear_mesh()
+		return
+		
+	if _manager.acquire_mesh(path,self)==null:
+		_clear_mesh()
+		return
+		
 	if not _mesh_path.is_empty():
 		_manager.release_mesh(_mesh_path,self)
+	
 	_mesh_path = path
+	print("MeshLoader updated: ", _mesh_path)
 	notify_output_change(0)
 	
 func on_mesh_changed(path: String)->void:
@@ -104,4 +122,7 @@ func get_mesh_data()->MMBvhData:
 		return null
 	var data := MMBvhData.new()
 	data.mesh_path = _mesh_path
+	return data
+
+func _serialize(data: Dictionary) -> Dictionary:
 	return data

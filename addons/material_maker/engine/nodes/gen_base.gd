@@ -479,6 +479,14 @@ func follow_input(_input_index : int) -> Array:
 		rv.push_back(OutputPort.new(self, i))
 	return rv
 
+## follow the generators of all sources recursively and check for readiness
+func is_output_ready(output_index: int)->bool:
+	for i in range(get_input_defs().size()):
+		var source : OutputPort = get_source(i)
+		if source != null and not source.generator.is_output_ready(source.output_index):
+			return false
+	return true
+
 func get_input_shader(input_index : int) -> ShaderCode:
 	var source = get_source(input_index)
 	if source != null:
