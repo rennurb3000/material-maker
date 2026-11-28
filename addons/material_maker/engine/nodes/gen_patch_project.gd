@@ -119,9 +119,7 @@ func _render_projection_map()->void:
 	pipeline.add_parameter_or_texture("patch_inverse","mat4x4",Projection(patch_inverse))
 	# Orthographic direction from global origin towards patch origin
 	# as object is at  ZERO
-	var direction := _get_patch_position().normalized()
-	if direction.is_zero_approx():
-		direction = patch_transform.basis.z.normalized()
+	var direction : Vector3 = -patch_transform.basis.z.normalized()
 		
 	pipeline.add_parameter_or_texture(
 		"patch_direction",
@@ -148,17 +146,11 @@ func _render_projection_map()->void:
 		"@BVH_UTILS": load(BVH_UTILS).text,
 		"@BVH_TRAVERSAL": load(BVH_TRAVERSAL).text
 	}
-	print("Patch inverse: ", patch_inverse)
-	print("Direction: ", direction)
-	print("Expected local direction: ", patch_inverse.basis * direction)
-	print("Mesh AABB: ", mesh.get_aabb())
 	var local_origin := patch_inverse * Vector3.ZERO
 	var local_direction := patch_inverse.basis * direction
 	var t := -local_origin.z / local_direction.z
 	var hit := local_origin + local_direction * t
 
-	print("Projected mesh origin: ", hit)
-	print("Expected patch UV: ", Vector2(hit.x / 2.5 + 0.5, hit.y / 2.5 + 0.5))
 	var vertex_shader: String = load(VERTEX_SHADER).text
 	var fragment_shader: String = load(FRAGMENT_SHADER).text
 	var resolution: int = SIZES[int(get_parameter("map_size"))]

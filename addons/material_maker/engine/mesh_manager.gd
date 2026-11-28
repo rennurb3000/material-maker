@@ -22,15 +22,18 @@ func update_backend()-> void:
 	var use_gpu_bvh = mm_globals.get_config("bake_use_lbvh")
 	if (use_gpu_extraction or use_gpu_bvh) and _rd == null:
 		_rd = RenderingServer.create_local_rendering_device()
-	if _extractor == null:
+	if _extractor == null or _extractor._rd != _rd:
+		if _extractor != null:
+			_extractor.cleanup()
 		_extractor = MMMeshExtractor.new(_rd)
+		
 	mesh_extract = Callable()
 	if use_gpu_extraction and _rd != null:
 		mesh_extract = _extractor.extract_gpu
 	if not mesh_extract.is_valid():
 		print("using cpu extractor!")
 		mesh_extract = _extractor.extract_cpu
-	bvh_generate = (MMBvhGeneratorGPU.generate.bind(true, _rd,mesh_extract) if use_gpu_bvh else MMBvhGenerator.generate.bind(true) )
+	bvh_generate = (MMBvhGeneratorGPU.generate.bind(true, _rd,_extractor.extract_gpu) if use_gpu_bvh else MMBvhGenerator.generate.bind(true) )
 
 func _init() -> void:
 	update_backend()

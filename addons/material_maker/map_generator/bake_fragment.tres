@@ -262,7 +262,7 @@ float rand(vec2 co){
 void main() {
 	vec3 origin = texture(ray_origin,uv).rgb;
 	@AABB_TRANSFORM
-	vec3 dir = normalize(texture(ray_dir,uv).rgb);
+	vec3 dir = -normalize(texture(ray_dir,uv).rgb);
 	float offset = @OFFSET_EXPR;
 	float m = @MASK_EXPR;
 	if (m< 0.5)
@@ -270,7 +270,7 @@ void main() {
 		outColor = vec4(0.0);
 		return;
 	}
-	origin -= normalize(dir) *  offset *offset_scale;
+	origin -= dir*  offset *offset_scale;
 	vec3 normal_hit;
 	ivec3 hit_vids;
 	int hit_face;

@@ -2,11 +2,23 @@
 extends MMGenBase
 class_name MMGenCustomBake
 
+# Bake node:
+# Takes ray defining maps (position and normal)  offset, and a mask
+# for each texel where the mask is >0.5,a ray is generated
+# ray origin = ( pos - dir*offset*offset_scale)
+# where dir = - low poly normal 
+# if the ray hits a triangle from the bvh and the @SURFACE_FILTER stops it,
+# the hitposition and triangle vertices are used to calculate the barycentric coordinates
+# the input LUT is interpolated according to the barycentric coordinates
+# scale aabb: for maps bound to the range 0.0 .. 1.0 , 
+# the position is transformed
+# 
 # NOTE
 # i got problems with an attached buffer between the input maps and the
 # bake node on startup 
 # recursively searching for the mesh loader node (is output ready) helped a bit
 # to check if the texture is actually ready 
+# curvature or later cavity is not optimal, as it is not filtered
 
 var current_vertex_pos_lut :MMTexture = null
 var world_pos_texture : MMTexture
@@ -111,8 +123,12 @@ func set_parameter(n : String, v) -> void:
 	
 	
 func get_output_defs(_show_hidden : bool = false) -> Array:
+	var output_type : String = "rgb"
+	# Curvature, distance, thickness
+	if int(get_parameter("map_mode")) in [10,11]:
+		output_type = "f"
 	return [
-		{name ="output",type ="rgb", shortdesc = "baked map"}
+		{name="output",type=output_type,shortdesc="baked map"}
 	]
 func get_input_defs() -> Array:
 	return [
@@ -178,18 +194,14 @@ func _get_shader_code(uv, _output_index, context) -> ShaderCode:
 			
 			if rv.output_type == "f":
 				rv.code = "float %s_%d = texture(%s, %s).r;\n" % [genname, variant, texture_name, uv]
-				rv.output_values.f = "%s_%d" % [genname, variant]
 			else:
 				rv.code = "vec3 %s_%d = texture(%s, %s).rgb;\n" % [genname, variant, texture_name, uv]
-				rv.output_values.rgb = "%s_%d" % [genname, variant]
 		else:
 			if rv.output_type == "f":
 				rv.code = "float %s_%d = %f;\n" % [genname, variant, color.r]
-				rv.output_values.f = "%s_%d" % [genname, variant]
 			else:
 				rv.code = "vec3 %s_%d = vec3(%f, %f, %f);\n" % [genname, variant, color.r, color.g, color.b]
-				rv.output_values.rgb = "%s_%d" % [genname, variant]
-
+	rv.output_values[rv.output_type] = "%s_%d" % [genname, variant]
 	return rv
 	
 func _serialize(data: Dictionary) -> Dictionary:
@@ -217,6 +229,9 @@ func bake_maps():
 		6: await bake_hit_normal(bake_size)
 		7: await bake_ao(bake_size)
 		8: await bake_tangent_space_normal(bake_size)
+		9: await bake_thickness(bake_size)
+		10: await bake_distance(bake_size)
+		11: await bake_curvature(bake_size)
 		_ : push_error("not yet implemented")
 
 func render_input_texture(input_index : int,size:Vector2i)->MMTexture:
@@ -340,6 +355,10 @@ func bake_attribute(attribute_key:String,output_name:String,bake_size:Vector2i)-
 			replaces["@BAKE_RESULT"] = """
 				outColor = vec4(normalize(interpolated.xyz),1.0);
 			"""
+		"curvature":
+			replaces["@BAKE_RESULT"] = """
+				outColor = vec4(normalize(interpolated.xyz),1.0);
+			"""
 		"surface_id":
 			replaces["@BAKE_RESULT"] = """
 				outColor = vec4(vec3(interpolated.r),1.0);
@@ -414,6 +433,36 @@ func bake_attribute(attribute_key:String,output_name:String,bake_size:Vector2i)-
 			ao /= float(SAMPLES);
 			outColor = vec4(vec3(ao), 1.0);
 			"""
+		"thickness":
+			replaces["@BAKE_RESULT"] = """
+			// start a bit under the last rayhit position
+			vec3 N = normalize(interpolated.xyz);
+			vec3 ray_start = hit_pos - N* 0.001; 
+			vec3 second_normal;
+			ivec3 second_vids;
+			int second_face;
+			vec3 a,b,c;
+			float thickness = intersects_bvh(
+				ray_start,
+				-N,
+				second_normal,
+				second_vids,
+				second_face,
+				a,b,c
+			);
+			if (thickness >= 65536.0 || thickness < 0.0) {
+			    outColor = vec4(vec3(0.0),1.0); // No hit
+			} else {
+				thickness = clamp(thickness / max(max_raylength * 0.75, 1e-6), 0.0, 1.0);
+			    outColor = vec4(vec3(thickness), 1.0);
+			}
+			"""
+		"distance":
+			replaces["@BAKE_RESULT"] = """
+				float distance_value = hit - offset * offset_scale;
+				outColor = vec4(vec3(
+    			clamp(0.5 + distance_value / max(max_raylength, 1e-6), 0.0, 1.0)), 1.0);
+			"""
 		_:
 			replaces["@BAKE_RESULT"] = """
 				outColor = vec4(interpolated,1.0);
@@ -436,14 +485,59 @@ func bake_attribute(attribute_key:String,output_name:String,bake_size:Vector2i)-
 		var filters : MMMeshRenderingPipeline2 = MMMeshRenderingPipeline2.new()
 		baked_map = await mm_renderer.thread_run(filters._postprocess,[baked_map,bake_size,postprocess])
 	
+	
+	if output_name == "curvature":
+		var position_map: MMTexture = await render_input_texture(1,bake_size)
+		if position_map == null:
+			push_error("Curvature requires a position map")
+			return
+	
+		var filters := MMMeshRenderingPipeline2.new()
+		var kernel := """
+			vec3 dPdu =
+				texture(position_map, uv + vec2(texel.x, 0.0)).xyz -
+				texture(position_map, uv - vec2(texel.x, 0.0)).xyz;
+			vec3 dPdv =
+				texture(position_map, uv + vec2(0.0, texel.y)).xyz -
+				texture(position_map, uv - vec2(0.0, texel.y)).xyz;
+
+			vec3 dNdu =
+				normalize(texture(normal_map, uv + vec2(texel.x, 0.0)).xyz) -
+				normalize(texture(normal_map, uv - vec2(texel.x, 0.0)).xyz);
+			vec3 dNdv =
+				normalize(texture(normal_map, uv + vec2(0.0, texel.y)).xyz) -
+				normalize(texture(normal_map, uv - vec2(0.0, texel.y)).xyz);
+
+			float E = dot(dPdu, dPdu);
+			float F = dot(dPdu, dPdv);
+			float G = dot(dPdv, dPdv);
+
+			float e = -dot(dNdu, dPdu);
+			float f = -0.5 * (dot(dNdu, dPdv) + dot(dNdv, dPdu));
+			float g = -dot(dNdv, dPdv);
+
+			float det = E * G - F * F;
+			float curvature = 0.0;
+
+			if (det > 1e-12) {
+				curvature = (e * G - 2.0 * f * F + g * E) / (2.0 * det);
+			}
+
+			float mapped = clamp(0.5 + curvature * 0.2, 0.0, 1.0);
+			outColor = vec4(mapped, 0.0, 0.0, 1.0);
+		"""
+
+		var result: MMTexture = await filters.sample_map(position_map,baked_map,bake_size,kernel)
+		if result == null:
+			push_error("Curvature sampling failed")
+			return
+		baked_map = result
+	
 	print("Bake finished: ", get_instance_id()," map=", baked_map," rid=", baked_map.rid.is_valid())
 	mm_deps.dependency_update(get_texture_parameter_name("output"),baked_map,true)
 	notify_output_change(0)
 		
 	print("%s complete",output_name)
-	
-func bake_world_position(bake_size:Vector2i):
-	await bake_attribute(MMMeshExtractor.KEY_POSITION_LUT,"world_position",bake_size)
 	
 func _request_rebake()->void:
 	if _baking:
@@ -476,9 +570,10 @@ func _request_rebake()->void:
 			break
 	_baking = false
 
+func bake_world_position(bake_size:Vector2i):
+	await bake_attribute(MMMeshExtractor.KEY_POSITION_LUT,"world_position",bake_size)	
 func bake_world_normal(bake_size:Vector2i):
 	await bake_attribute(MMMeshExtractor.KEY_NORMAL_LUT,"world_normal",bake_size)
-
 func bake_uv(bake_size:Vector2i):
 	await bake_attribute(MMMeshExtractor.KEY_UV_LUT,"uv",bake_size)
 func bake_uv2(bake_size:Vector2i):
@@ -491,11 +586,11 @@ func bake_hit_normal(bake_size:Vector2i):
 	await bake_attribute(MMMeshExtractor.KEY_POSITION_LUT,"hit_normal",bake_size)
 func bake_tangent_space_normal(bake_size:Vector2i):
 	await bake_attribute(MMMeshExtractor.KEY_NORMAL_LUT,"tangent_normal",bake_size)
-func bake_thickness():
-	pass
-func bake_distance():
-	pass
-func bake_curvature():
-	pass
+func bake_thickness(bake_size:Vector2i):
+	await bake_attribute(MMMeshExtractor.KEY_NORMAL_LUT,"thickness",bake_size)
+func bake_distance(bake_size:Vector2i):
+	await bake_attribute(MMMeshExtractor.KEY_POSITION_LUT,"distance",bake_size)
+func bake_curvature(bake_size:Vector2i):
+	await bake_attribute(MMMeshExtractor.KEY_NORMAL_LUT,"curvature",bake_size)
 func bake_ao(bake_size:Vector2i):
 	await bake_attribute(MMMeshExtractor.KEY_NORMAL_LUT,"ambient_occlusion",bake_size)

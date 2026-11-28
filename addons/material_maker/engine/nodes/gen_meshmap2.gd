@@ -11,8 +11,11 @@ const MESH_MAPS : Array[Dictionary] = [
 	{name="UV2",output_type="rgb",attribute = MMMeshExtractor.KEY_UV2_LUT},
 	{name="Surface ID",output_type="f",attribute = MMMeshExtractor.KEY_SURFACE_ID_LUT},
 	{name="UV Mask",output_type="f",attribute="uv_mask"},
+	{name="Curvature",output_type="f",attribute="curvature",postprocess=[]},
+	{name="Ambient Occlusion",output_type="f",attribute="ao"},
+	{name="Thickness",output_type="f",attribute="thickness"}
 ]
-signal map_ready # TODO review 
+#signal map_ready # TODO review 
 var current_map : MMTexture = null
 #var _pipeline : MMMeshRenderingPipeline2 = null
 var _updating := false
@@ -107,7 +110,54 @@ func _render_current_map()->void:
 	var definition := MESH_MAPS[mode]
 	var postprocess := definition.get("postprocess",[])
 	var size = [256,512,1024,2048,4096][int(get_parameter("map_size"))]
-	current_map = await  _pipeline.render_map(vertex_shader,fragment_shader,Vector2i(size,size),mode,int(get_parameter("surface")),postprocess)
+	var render_size : Vector2i = Vector2i(size,size)
+	match mode:
+		8: # Curvature
+			# maps need to be dilated!
+			var position_map : MMTexture = await _pipeline.render_map(vertex_shader,fragment_shader,render_size,0,int(get_parameter("surface")),["dilate"])
+			if position_map == null:
+				return
+			var normal_map : MMTexture = await _pipeline.render_map(vertex_shader,fragment_shader,render_size,1,int(get_parameter("surface")),["dilate"])
+			if normal_map == null:
+				return
+			var kernel :String = """
+				vec3 dPdu =
+				    texture(position_map, uv + vec2(texel.x, 0.0)).xyz -
+				    texture(position_map, uv - vec2(texel.x, 0.0)).xyz;
+
+				vec3 dPdv =
+				    texture(position_map, uv + vec2(0.0, texel.y)).xyz -
+				    texture(position_map, uv - vec2(0.0, texel.y)).xyz;
+
+				vec3 dNdu =
+				    normalize(texture(normal_map, uv + vec2(texel.x, 0.0)).xyz) -
+				    normalize(texture(normal_map, uv - vec2(texel.x, 0.0)).xyz);
+
+				vec3 dNdv =
+				    normalize(texture(normal_map, uv + vec2(0.0, texel.y)).xyz) -
+				    normalize(texture(normal_map, uv - vec2(0.0, texel.y)).xyz);
+
+				float E = dot(dPdu, dPdu);
+				float F = dot(dPdu, dPdv);
+				float G = dot(dPdv, dPdv);
+
+				float e = -dot(dNdu, dPdu);
+				float f = -0.5 * (dot(dNdu, dPdv) + dot(dNdv, dPdu));
+				float g = -dot(dNdv, dPdv);
+
+				float det = E * G - F * F;
+				float curvature = 0.0;
+
+				if (det > 1e-12) {
+				    curvature = (e * G - 2.0 * f * F + g * E) / (2.0 * det);
+				}
+
+				float mapped = clamp(0.5 + curvature * 0.2, 0.0, 1.0);
+				outColor = vec4(mapped, 0.0, 0.0, 1.0);
+			"""
+			current_map = await _pipeline.sample_map(position_map, normal_map, render_size, kernel)
+		_:
+			current_map = await  _pipeline.render_map(vertex_shader,fragment_shader,Vector2i(size,size),mode,int(get_parameter("surface")),postprocess)
 	print("MeshMap2 render finished: ", get_instance_id())
 	mm_deps.dependency_update(get_texture_parameter_name(),current_map,true)
 	#notify_output_change(0)

@@ -1,0 +1,22 @@
+[gd_resource type="Resource" script_class="TextResource" format=3 uid="uid://bswdd7ieuu03u"]
+
+[ext_resource type="Script" uid="uid://bc3eljtuurjsd" path="res://addons/material_maker/engine/text_resource.gd" id="1_ijq31"]
+
+[resource]
+script = ExtResource("1_ijq31")
+text = "#version 450
+
+layout(location = 0) in vec2 v_uv;
+layout(location = 0) out vec4 outColor;
+
+@DECLARATIONS
+@BVH_UTILS
+@BVH_TRAVERSAL
+
+void main() {
+	vec2 uv = v_uv;
+	vec2 texel = 1.0 / vec2(textureSize(position_map,0));
+	vec3 P = texture(position_map,v_uv).xyz;
+	vec3 N = normalize(texture(normal_map,v_uv).xyz);
+	@SAMPLE_KERNEL	
+}"

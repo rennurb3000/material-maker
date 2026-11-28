@@ -82,7 +82,6 @@ const KEY_ADD_VERTEX_INFO : String = "add_vertex_info"
 const KEY_VERTEX_COUNT : String = "vertex_count"
 const KEY_INDEX_COUNT : String = "index_count"
 
-#TODO extend for better debugability
 enum BVHStatus{
 	OK,
 	INVALID_MESH,

@@ -363,7 +363,8 @@ func _exit_tree() -> void:
 
 func _handle_sensitivity_adjustment(event : InputEvent) -> void:
 	if mode == Modes.SLIDING:
-		adjust_increment = 0.05 if event.alt_pressed else 0.1
+		# TODO review: had to check the event type
+		adjust_increment = 0.05 if (event is InputEventWithModifiers and event.alt_pressed) else 0.1
 		if event is InputEventMouseButton:
 			if event.pressed:
 				if event.button_index == MOUSE_BUTTON_WHEEL_DOWN:

@@ -110,3 +110,18 @@ func render_map(vertex_shader:String,fragment_shader:String,size:Vector2i,map_mo
 	if not postprocess.is_empty():
 		result = await mm_renderer.thread_run(_postprocess,[result, size, postprocess])
 	return result
+
+# similar to "old map generator" but for curvature
+func sample_map(position_map:MMTexture,normal_map:MMTexture,size:Vector2i,kernel:String)->MMTexture:
+	var pipeline: MMBakePipeline = MMBakePipeline.new()
+	pipeline.add_parameter_or_texture("position_map", "sampler2D", position_map)
+	pipeline.add_parameter_or_texture("normal_map", "sampler2D", normal_map)
+	var vertex_shader: String = load("res://addons/material_maker/map_generator/fullscreen_vertex.tres").text
+	var fragment_shader: String = load("res://addons/material_maker/map_generator/mesh_extraction/meshmap2_sample.tres").text
+	var replaces: Dictionary = {"@SAMPLE_KERNEL": kernel,"@BVH_UTILS":"","@BVH_TRAVERSAL":""}
+	if not await pipeline.set_shader(vertex_shader,fragment_shader,replaces):
+		push_error("sample meshmap (meshmap2) compilation failed")
+		return null
+	var result : MMTexture = MMTexture.new()
+	await pipeline.render(size,TEXTURE_TYPE_RGBA32F,result)
+	return result

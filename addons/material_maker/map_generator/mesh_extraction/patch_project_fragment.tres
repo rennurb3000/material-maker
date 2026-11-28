@@ -62,17 +62,10 @@ void main() {
         a, b, c
     );
 
-if (hit < t - 2.0 * EPS) {
-    float relative_hit = hit / max(t, 1e-6);
-
-    outColor = vec4(
-        1.0 - clamp(relative_hit, 0.0, 1.0),
-        clamp(relative_hit, 0.0, 1.0),
-        0.0,
-        1.0
-    );
-    return;
-}
+    if (hit >= 0.0 && hit < t - 2.0 * EPS) {
+        outColor = vec4(0.0);
+        return;
+    }
 
     // RG = projected UV, B = 0, A = projection mask
     outColor = vec4(patch_uv, 0.0, 1.0);
